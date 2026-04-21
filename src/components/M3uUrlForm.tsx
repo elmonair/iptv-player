@@ -5,11 +5,12 @@ import { usePlaylistStore } from '../stores/playlistStore'
 export default function M3uUrlForm() {
   const navigate = useNavigate()
   const addSource = usePlaylistStore((state) => state.addSource)
-  const setActiveSource = usePlaylistStore((state) => state.setActiveSource)
 
   const [urlValue, setUrlValue] = useState('')
   const [nameValue, setNameValue] = useState('')
   const [urlError, setUrlError] = useState('')
+  const [submitError, setSubmitError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const isValidUrl = (url: string): boolean => {
     return url.startsWith('http://') || url.startsWith('https://')
@@ -24,8 +25,9 @@ export default function M3uUrlForm() {
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setSubmitError('')
 
     if (!urlValue.trim()) {
       setUrlError('Playlist URL is required')
@@ -37,15 +39,21 @@ export default function M3uUrlForm() {
       return
     }
 
-    const name = nameValue.trim() || extractHostname(urlValue)
-    const id = addSource({
-      type: 'm3u-url',
-      name,
-      url: urlValue.trim(),
-    })
-
-    setActiveSource(id)
-    navigate('/loading')
+    setIsSubmitting(true)
+    try {
+      const name = nameValue.trim() || extractHostname(urlValue)
+      await addSource({
+        type: 'm3u-url',
+        name,
+        url: urlValue.trim(),
+      })
+      navigate('/home')
+    } catch (error) {
+      setSubmitError('Failed to save playlist. Please try again.')
+      console.error('Failed to save playlist:', error)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const clearUrlError = () => setUrlError('')
@@ -90,10 +98,13 @@ export default function M3uUrlForm() {
 
       <button
         type="submit"
-        className="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg text-base focus:outline-none focus:ring-4 focus:ring-indigo-500/50 transition-colors min-h-[44px]"
+        disabled={isSubmitting}
+        className="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 text-white font-semibold rounded-lg text-base focus:outline-none focus:ring-4 focus:ring-indigo-500/50 transition-colors min-h-[44px] disabled:opacity-70"
       >
-        Load Playlist
+        {isSubmitting ? 'Loading...' : 'Load Playlist'}
       </button>
+
+      {submitError && <p className="text-sm text-red-500">{submitError}</p>}
     </form>
   )
 }

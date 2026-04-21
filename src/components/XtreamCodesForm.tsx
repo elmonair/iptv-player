@@ -5,7 +5,6 @@ import { usePlaylistStore } from '../stores/playlistStore'
 export default function XtreamCodesForm() {
   const navigate = useNavigate()
   const addSource = usePlaylistStore((state) => state.addSource)
-  const setActiveSource = usePlaylistStore((state) => state.setActiveSource)
 
   const [urlValue, setUrlValue] = useState('')
   const [usernameValue, setUsernameValue] = useState('')
@@ -14,6 +13,8 @@ export default function XtreamCodesForm() {
   const [urlError, setUrlError] = useState('')
   const [usernameError, setUsernameError] = useState('')
   const [passwordError, setPasswordError] = useState('')
+  const [submitError, setSubmitError] = useState('')
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
   const isValidUrl = (url: string): boolean => {
     return url.startsWith('http://') || url.startsWith('https://')
@@ -28,8 +29,9 @@ export default function XtreamCodesForm() {
     }
   }
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    setSubmitError('')
 
     let hasError = false
 
@@ -53,17 +55,23 @@ export default function XtreamCodesForm() {
 
     if (hasError) return
 
-    const name = nameValue.trim() || extractHostname(urlValue)
-    const id = addSource({
-      type: 'xtream',
-      name,
-      serverUrl: urlValue.trim(),
-      username: usernameValue.trim(),
-      password: passwordValue.trim(),
-    })
-
-    setActiveSource(id)
-    navigate('/loading')
+    setIsSubmitting(true)
+    try {
+      const name = nameValue.trim() || extractHostname(urlValue)
+      await addSource({
+        type: 'xtream',
+        name,
+        serverUrl: urlValue.trim(),
+        username: usernameValue.trim(),
+        password: passwordValue.trim(),
+      })
+      navigate('/home')
+    } catch (error) {
+      setSubmitError('Failed to save playlist. Please try again.')
+      console.error('Failed to save playlist:', error)
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const clearUrlError = () => setUrlError('')
@@ -152,10 +160,13 @@ export default function XtreamCodesForm() {
 
       <button
         type="submit"
-        className="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg text-base focus:outline-none focus:ring-4 focus:ring-indigo-500/50 transition-colors min-h-[44px]"
+        disabled={isSubmitting}
+        className="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 text-white font-semibold rounded-lg text-base focus:outline-none focus:ring-4 focus:ring-indigo-500/50 transition-colors min-h-[44px] disabled:opacity-70"
       >
-        Login
+        {isSubmitting ? 'Loading...' : 'Login'}
       </button>
+
+      {submitError && <p className="text-sm text-red-500">{submitError}</p>}
     </form>
   )
 }
