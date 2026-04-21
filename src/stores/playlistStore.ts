@@ -20,8 +20,8 @@ export type XtreamSource = {
 
 export type PlaylistSource = M3UUrlSource | XtreamSource
 
-type M3UUrlSourceInput = Omit<M3UUrlSource, 'id' | 'createdAt'>
-type XtreamSourceInput = Omit<XtreamSource, 'id' | 'createdAt'>
+export type M3UUrlSourceInput = Omit<M3UUrlSource, 'id' | 'createdAt'>
+export type XtreamSourceInput = Omit<XtreamSource, 'id' | 'createdAt'>
 
 interface PlaylistStore {
   sources: PlaylistSource[]
