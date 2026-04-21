@@ -12,13 +12,112 @@ export type PlaylistSourceRecord = {
   passwordEncrypted?: string
 }
 
+export type CategoryRecord = {
+  id: string
+  sourceId: string
+  type: 'live' | 'movie' | 'series'
+  externalId: string
+  name: string
+}
+
+export type ChannelRecord = {
+  id: string
+  sourceId: string
+  externalId: string
+  name: string
+  logoUrl?: string
+  streamId: string
+  categoryId: string
+  tvgId?: string
+  epgChannelId?: string
+  streamType?: string
+}
+
+export type MovieRecord = {
+  id: string
+  sourceId: string
+  externalId: string
+  name: string
+  logoUrl?: string
+  streamId: string
+  categoryId: string
+  containerExtension?: string
+  year?: number
+  rating?: number
+  plot?: string
+  genre?: string
+  cast?: string
+  director?: string
+  releaseDate?: string
+  durationSeconds?: number
+}
+
+export type SeriesRecord = {
+  id: string
+  sourceId: string
+  externalId: string
+  name: string
+  logoUrl?: string
+  backdropUrl?: string
+  categoryId: string
+  year?: number
+  rating?: number
+  plot?: string
+  genre?: string
+  cast?: string
+  director?: string
+  releaseDate?: string
+}
+
+export type EpisodeRecord = {
+  id: string
+  sourceId: string
+  seriesId: string
+  externalId: string
+  seasonNumber: number
+  episodeNumber: number
+  title?: string
+  streamId: string
+  containerExtension?: string
+  durationSeconds?: number
+  plot?: string
+  releaseDate?: string
+}
+
+export type SyncMetadataRecord = {
+  sourceId: string
+  lastSyncAt: number
+  channelsCount: number
+  moviesCount: number
+  seriesCount: number
+  syncStatus: 'idle' | 'syncing' | 'error'
+  errorMessage?: string
+}
+
 class IptvDatabase extends Dexie {
   sources!: Table<PlaylistSourceRecord>
+  categories!: Table<CategoryRecord>
+  channels!: Table<ChannelRecord>
+  movies!: Table<MovieRecord>
+  series!: Table<SeriesRecord>
+  episodes!: Table<EpisodeRecord>
+  syncMetadata!: Table<SyncMetadataRecord>
 
   constructor() {
     super('IptvDatabase')
+
     this.version(1).stores({
       sources: 'id, type, createdAt',
+    })
+
+    this.version(2).stores({
+      sources: 'id, type, createdAt',
+      categories: 'id, sourceId, type, externalId',
+      channels: 'id, sourceId, categoryId, name',
+      movies: 'id, sourceId, categoryId, name, year',
+      series: 'id, sourceId, categoryId, name',
+      episodes: 'id, seriesId, seasonNumber, episodeNumber',
+      syncMetadata: 'sourceId',
     })
   }
 }
