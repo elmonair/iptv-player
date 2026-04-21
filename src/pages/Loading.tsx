@@ -1,83 +1,62 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
-import { usePlaylistStore, type PlaylistSource } from '../stores/playlistStore'
+import { usePlaylistStore } from '../stores/playlistStore'
 import { syncXtreamPlaylist, type SyncProgress } from '../lib/xtreamSync'
 
 export default function Loading() {
   const navigate = useNavigate()
-  const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
-
   const [progress, setProgress] = useState<SyncProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
-
-  const source = getActiveSource()
-  const isM3uUrl = source?.type === 'm3u-url'
+  const hasStarted = useRef(false)
 
   useEffect(() => {
+    if (hasStarted.current) return
+    hasStarted.current = true
+
+    const source = usePlaylistStore.getState().getActiveSource()
     if (!source) {
       navigate('/')
       return
     }
 
     if (source.type === 'm3u-url') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setProgress({ phase: 'complete', message: 'M3U URL support coming in Step 9B', percent: 100 })
       return
     }
 
-    let isCancelled = false
+    let cancelled = false
 
-    async function runSync() {
-      try {
-        const generator = syncXtreamPlaylist(source as PlaylistSource)
-
-        for await (const update of generator) {
-          if (isCancelled) break
-          setProgress(update)
-
-          if (update.phase === 'complete') {
-            setTimeout(() => navigate('/home'), 500)
-            return
-          }
-
-          if (update.phase === 'error') {
-            setError(update.message)
-            return
-          }
-        }
-      } catch (err) {
-        if (isCancelled) return
-        const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred'
-        setError(errorMessage)
+    syncXtreamPlaylist(source, (update) => {
+      if (cancelled) return
+      setProgress(update)
+      if (update.phase === 'complete') {
+        setTimeout(() => {
+          if (!cancelled) navigate('/home')
+        }, 400)
       }
-    }
-
-    runSync()
+    }).catch((err: unknown) => {
+      if (cancelled) return
+      const message = err instanceof Error ? err.message : 'Unknown error'
+      setError(message)
+    })
 
     return () => {
-      isCancelled = true
+      cancelled = true
     }
-  }, [navigate, getActiveSource, source])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const handleRetry = () => {
     setError(null)
     setProgress(null)
+    hasStarted.current = false
     window.location.reload()
   }
 
   const handleBack = () => {
     navigate('/')
-  }
-
-  if (isM3uUrl) {
-    return (
-      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 sm:p-6">
-        <div className="text-center max-w-md">
-          <Loader2 className="w-16 h-16 mx-auto mb-6 text-indigo-500 animate-spin" />
-          <h2 className="text-3xl font-bold text-white mb-3">Loading playlist...</h2>
-          <p className="text-slate-500 text-base">M3U URL support coming in Step 9B</p>
-        </div>
-      </div>
-    )
   }
 
   if (error) {
@@ -91,7 +70,7 @@ export default function Loading() {
               </svg>
             </div>
             <h2 className="text-2xl font-bold text-white mb-2">Sync Failed</h2>
-            <p className="text-red-400 text-sm">{error}</p>
+            <p className="text-red-400 text-sm break-words">{error}</p>
           </div>
           <div className="flex gap-4 justify-center">
             <button
@@ -130,7 +109,7 @@ export default function Loading() {
               />
             </div>
             <div className="flex justify-between text-sm">
-              <span className="text-slate-500">{progress.phase.replace('-', ' ')}</span>
+              <span className="text-slate-500">{progress.phase.replace(/-/g, ' ')}</span>
               <span className="text-slate-400">{Math.round(progress.percent)}%</span>
             </div>
           </div>
