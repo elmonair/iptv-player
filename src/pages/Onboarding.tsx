@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { Link, File, KeyRound } from 'lucide-react'
 
 type TabType = 'm3u-url' | 'm3u-file' | 'xtream'
@@ -21,8 +21,6 @@ export default function Onboarding() {
     { id: 'm3u-file', label: 'M3U File', icon: <File className="w-5 h-5" /> },
     { id: 'xtream', label: 'Xtream Codes', icon: <KeyRound className="w-5 h-5" /> },
   ]
-
-  const activeTabIndex = tabs.findIndex((tab) => tab.id === activeTab)
 
   const handleTabKeyDown = (e: React.KeyboardEvent, tabIndex: number) => {
     if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
