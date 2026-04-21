@@ -1,8 +1,13 @@
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import Onboarding from './pages/Onboarding'
+
 function App() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-900">
-      <h1 className="text-4xl font-bold text-white">IPTV Player - Setup Complete</h1>
-    </div>
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Onboarding />} />
+      </Routes>
+    </BrowserRouter>
   )
 }
 
