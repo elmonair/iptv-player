@@ -23,58 +23,50 @@ function buildApiUrl(action: string, extraParams: Record<string, string> = {}): 
   return buildApiPath(action, extraParams)
 }
 
-async function fetchWithTimeout(url: string, credentials: XtreamCredentials): Promise<Response> {
+async function fetchJson<T>(action: string, credentials: XtreamCredentials, extraParams: Record<string, string> = {}): Promise<T> {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT)
 
+  let response: Response
   try {
-    const urlWithCreds = `${url}&username=${encodeURIComponent(credentials.username)}&password=${encodeURIComponent(credentials.password)}`
-    const response = await fetch(urlWithCreds, {
+    const urlWithCreds = `${buildApiUrl(action, extraParams)}&username=${encodeURIComponent(credentials.username)}&password=${encodeURIComponent(credentials.password)}`
+    console.log(`[Xtream API] Fetching: ${action}`)
+
+    response = await fetch(urlWithCreds, {
       signal: controller.signal,
     })
-
+  } catch (err) {
     clearTimeout(timeoutId)
-
-    if (!response.ok) {
-      throw new Error(`Xtream API error: ${response.status} ${response.statusText}`)
+    if (err instanceof Error && err.name === 'AbortError') {
+      throw new Error('Request timeout - Xtream server did not respond in 30 seconds')
     }
-
-    const text = await response.text()
-
-    if (!text.trim().startsWith('{')) {
-      throw new Error('Xtream server returned invalid response (not JSON)')
-    }
-
-    return response
-  } catch (error) {
-    clearTimeout(timeoutId)
-
-    if (error instanceof Error) {
-      if (error.name === 'AbortError') {
-        throw new Error('Request timeout - Xtream server did not respond in 30 seconds')
-      }
-      throw error
-    }
-    throw new Error('Unknown error occurred')
-  }
-}
-
-async function fetchJson<T>(action: string, credentials: XtreamCredentials, extraParams: Record<string, string> = {}): Promise<T> {
-  const url = buildApiUrl(action, extraParams)
-  console.log(`[Xtream API] Fetching: ${action}`)
-
-  const response = await fetchWithTimeout(url, credentials)
-  const text = await response.text()
-
-  if (!text.trim().startsWith('{')) {
-    throw new Error('Xtream server returned invalid response (not JSON)')
+    throw new Error(`Network error: ${err instanceof Error ? err.message : String(err)}`)
   }
 
-  const data = JSON.parse(text) as unknown
+  clearTimeout(timeoutId)
 
-  console.log(`[Xtream API] ${action}: Response received`)
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+  }
 
-  return data as T
+  const bodyText = await response.text()
+
+  const trimmed = bodyText.trimStart()
+  if (trimmed.startsWith('<')) {
+    throw new Error('Xtream server returned HTML instead of JSON (check proxy config)')
+  }
+
+  if (!trimmed) {
+    throw new Error('Xtream server returned empty response')
+  }
+
+  try {
+    const data = JSON.parse(bodyText) as unknown
+    console.log(`[Xtream API] ${action}: Response received`)
+    return data as T
+  } catch {
+    throw new Error(`Xtream server returned invalid JSON: ${bodyText.slice(0, 200)}`)
+  }
 }
 
 export async function getUserInfo(credentials: XtreamCredentials): Promise<XtreamUserInfo> {
