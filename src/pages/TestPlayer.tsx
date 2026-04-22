@@ -9,7 +9,7 @@ import { decryptString } from '../lib/crypto'
 export default function TestPlayer() {
   const navigate = useNavigate()
   const videoRef = useRef<HTMLVideoElement>(null)
-  const playerRef = useRef<mpegts.Player | null>(null)
+  const playerRef = useRef<ReturnType<typeof mpegts.createPlayer> | null>(null)
   const initRef = useRef(false)
 
   const [status, setStatus] = useState<'loading' | 'playing' | 'error'>('loading')
@@ -27,10 +27,14 @@ export default function TestPlayer() {
         return
       }
 
+      console.log('[TestPlayer] Source found, type:', source.type)
+
       try {
         const serverUrl = await decryptString(source.serverUrl)
         const username = await decryptString(source.username)
         const password = await decryptString(source.password)
+
+        console.log('[TestPlayer] Credentials decrypted. Server:', serverUrl.replace(/\/\/.*@/, '//[REDACTED]@'))
 
         const channel = await db.channels.where('sourceId').equals(source.id).first()
         if (!channel) {
@@ -39,9 +43,18 @@ export default function TestPlayer() {
           return
         }
 
+        console.log('[TestPlayer] First channel:', { name: channel.name, streamId: channel.streamId, streamType: channel.streamType })
+
         setChannelName(channel.name)
 
         const streamUrl = `${serverUrl}/live/${username}/${password}/${channel.streamId}.ts`
+        const safeUrl = streamUrl.replace(username, '[USER]').replace(password, '[PASS]')
+        console.log('[TestPlayer] Stream URL:', safeUrl)
+
+        console.log('[TestPlayer] mpegts.js feature check:', mpegts.getFeatureList())
+        if (!mpegts.getFeatureList().mseLivePlayback) {
+          throw new Error('Browser does not support MSE live playback (mpegts.js requires it)')
+        }
 
         const player = mpegts.createPlayer({
           type: 'mpegts',
@@ -59,18 +72,34 @@ export default function TestPlayer() {
             setErrorMsg(info?.message ?? 'Player error occurred')
           })
 
+          player.on(mpegts.Events.LOADING_COMPLETE, () => {
+            console.log('[TestPlayer] mpegts LOADING_COMPLETE event')
+          })
+
+          player.on(mpegts.Events.RECOVERED_EARLY_EOF, () => {
+            console.log('[TestPlayer] mpegts RECOVERED_EARLY_EOF event')
+          })
+
           videoRef.current.onerror = () => {
             setStatus('error')
             setErrorMsg('Video element error occurred')
           }
 
+          videoRef.current.oncanplay = () => console.log('[TestPlayer] video canplay event')
+          videoRef.current.onplaying = () => console.log('[TestPlayer] video playing event')
+          videoRef.current.onstalled = () => console.log('[TestPlayer] video stalled event')
+
           player.load()
+          console.log('[TestPlayer] Player created, calling load and play')
           player.play()
           setStatus('playing')
+          console.log('[TestPlayer] Status set to playing')
         }
       } catch (err) {
+        console.error('[TestPlayer] Init failed:', err)
         setStatus('error')
-        setErrorMsg('Failed to initialize player')
+        const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
+        setErrorMsg(`Failed to initialize player. ${detail}`)
       }
     }
 
