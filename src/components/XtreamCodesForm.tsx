@@ -65,7 +65,7 @@ export default function XtreamCodesForm() {
         username: usernameValue.trim(),
         password: passwordValue.trim(),
       })
-      navigate('/home')
+      navigate('/loading')
     } catch (error) {
       setSubmitError('Failed to save playlist. Please try again.')
       console.error('Failed to save playlist:', error)
