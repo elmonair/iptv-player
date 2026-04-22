@@ -23,7 +23,7 @@ function AppContent() {
         if (location.pathname === '/') {
           const { sources } = usePlaylistStore.getState()
           if (sources.length > 0) {
-            navigate('/live', { replace: true })
+            navigate('/home', { replace: true })
           }
         }
         initialRouteHandled.current = true
