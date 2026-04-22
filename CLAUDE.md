@@ -1,69 +1,136 @@
 # IPTV Player — Project Rules
 
 ## What this project is
-A modern IPTV player web app built with React. Users paste an M3U playlist URL or Xtream Codes credentials, and the app plays Live TV, Movies, and Series in the browser. The app is designed to also work on TV browsers (Fire TV Silk, Android TV Bro) using keyboard/remote navigation. In the future it will be ported to React Native for native Android TV / Fire TV apps.
+A modern IPTV player web app built with React. Users connect with Xtream Codes credentials, and the app plays Live TV, Movies, and Series in the browser. The app is designed to also work on TV browsers (Fire TV Silk, Android TV Bro) using keyboard/remote navigation. In the future it will be ported to React Native for native Android TV / Fire TV apps.
 
 ## The user
-The project owner has NO coding experience. You are doing all the code. They are testing and reporting back. Write code they can trust without reading it line by line — meaning: clean, commented, no experimental patterns, no hidden magic.
+The project owner has no prior coding experience. AI writes the code. Write clean, commented, production-quality code without experimental patterns.
 
 ## Tech stack (do not substitute without asking)
 - Build tool: Vite
 - Framework: React 18 with TypeScript
 - Styling: Tailwind CSS v3
-- UI components: shadcn/ui (when we add components)
 - Routing: React Router v6
 - State: Zustand
 - Data fetching/caching: TanStack Query v5
-- Local storage: Dexie.js (IndexedDB wrapper)
-- Video player: Video.js + hls.js + mpegts.js (will be added when needed)
-- M3U parsing: iptv-playlist-parser (will be added when needed)
+- Local storage: Dexie.js with dexie-react-hooks
+- Video player: mpegts.js (for MPEG-TS live streams)
+- M3U parsing: iptv-playlist-parser (not yet installed; post-MVP)
 - Icons: lucide-react
 
 ## Architecture rules
 - Folder structure: src/components, src/pages, src/stores, src/lib, src/types, src/hooks
-- One component per file. PascalCase filenames for components. camelCase for utilities.
-- Use TypeScript strictly. No "any" types unless absolutely necessary. If you must use any, add a comment explaining why.
-- Use Zustand for global state. Do NOT use Redux, MobX, Context API for global state, or any other state library.
-- Use TanStack Query for all async data. Do NOT use useEffect + fetch for data.
-- Use Tailwind classes for all styling. Do NOT write CSS files, styled-components, or CSS-in-JS.
-- Keep components under 200 lines. If bigger, split into smaller components.
-- All text visible to users must come from a translation file (even if only English exists now), so multi-language is easy later.
+- One component per file. PascalCase filenames.
+- TypeScript strict, avoid `any`
+- Zustand for global state, never Context/Redux
+- TanStack Query for async data (no raw useEffect + fetch)
+- All styling in Tailwind classes, no CSS files
+- Components under 200 lines; split if larger
 
 ## UI rules
-- Dark theme only for now.
-- TV browser friendly: all interactive elements must be focusable with Tab key and navigable with arrow keys.
-- Minimum font size 16px. Buttons minimum 44px tall.
-- Focus states must be clearly visible (thick ring or scale effect).
-- Mobile responsive by default. Desktop and TV (1080p/4K) must both look good.
-- No hover-only interactions. Every hover has a focus equivalent.
+- Dark theme only
+- TV-friendly: Tab + Arrow keys work everywhere, visible focus rings
+- Minimum font size 16px, buttons minimum 44px tall
+- Mobile responsive by default
+- No hover-only interactions — every hover has a focus equivalent
+
+## Critical technical constraints (learned the hard way)
+
+### React Strict Mode is DISABLED in this project
+Located in src/main.tsx. Do NOT re-enable. It conflicts with media libraries (mpegts.js) that manage their own lifecycle.
+
+### Credentials lifecycle
+- Stored encrypted in IndexedDB (AES-GCM 256-bit)
+- Decrypted ONCE by playlistStore.loadSourcesFromDb() on app start
+- Exposed DECRYPTED via getActiveSource() — callers must NOT call decryptString() again
+- Never log credentials, even in error messages
+
+### Vite environment variables
+In vite.config.ts, use `loadEnv(mode, process.cwd(), '')` — never `process.env.X` directly. The latter doesn't read .env.local.
+
+### HTTP response bodies
+A response body can only be read ONCE. Always read into a variable first, then parse. Never call both .json() and .text() on the same response.
+
+### Video playback
+- Chrome blocks autoplay without user interaction
+- Always provide a user-click-to-play button on first load
+- Pattern: setup player on mount, but call player.play() or video.play() only from an onClick handler
+- For live streams, use mpegts.createPlayer with { type: 'mpegts', isLive: true }
+- Stream URL format: `{serverUrl}/live/{username}/{password}/{streamId}.ts`
+
+### App.tsx routing
+Initial-load routing (redirect to /home if sources exist, else to /) runs ONCE via useRef guard. Never add useEffect that force-redirects on every render — it breaks navigation to specific routes.
+
+### Proxy setup
+- Dev only: Vite proxy at /api/xtream/* routes to VITE_XTREAM_PROXY_TARGET (from .env.local)
+- Production: will need a server-side proxy on the VPS (not yet built)
+- Stream URLs go directly to the Xtream server (Chrome bypasses CORS for media elements)
 
 ## What NOT to do
-- Do NOT add features I did not ask for.
-- Do NOT install packages I did not approve.
-- Do NOT refactor working code unless I ask.
-- Do NOT delete files without telling me.
-- Do NOT proxy streams through a backend. The app is purely client-side for now.
-- Do NOT store IPTV credentials or playlist URLs in plain text. Encrypt at rest in IndexedDB.
-- Do NOT include any default playlists, scraped content, or provider suggestions in the app. The user provides their own source.
-- Do NOT commit .env files, node_modules, or secrets to Git.
+- Do NOT add features not asked for
+- Do NOT install packages without approval
+- Do NOT refactor working code unless asked
+- Do NOT proxy streams through a backend
+- Do NOT store credentials in plain text anywhere
+- Do NOT bundle default playlists or provider suggestions
+- Do NOT re-enable React Strict Mode
 
-## Legal posture
-This app is a neutral player. It hosts no content, proxies no streams, suggests no sources. The first-run screen will show a disclaimer reminding users they are responsible for the content they play. Do NOT add anything that undermines this posture.
+## Debugging rules (learned from painful debugging)
+- Every async operation logs to console with prefix [FeatureName]
+- Every catch block logs the actual error before setting user-facing message
+- Never use generic error messages — always include the real err.message
+- When a component mounts or starts work, log that it started
+- When it succeeds, log that it succeeded
+- Trust console logs and Network tab over UI state during debugging
+
+## Post-mortem lessons from Step 9 (do not repeat)
+1. Vite configs use loadEnv(), not process.env
+2. HTTP response bodies read exactly once
+3. Don't mix async generators with callbacks — pick one pattern
+4. Media libraries fight React Strict Mode — it's disabled here for that reason
+5. Credentials decrypted ONCE by the store; don't re-decrypt elsewhere
+6. Every catch block logs err before setting user message
+7. When changing routing behavior, audit all callers of affected routes
+8. Chrome needs user-click for first video play
+9. Route redirects must respect current pathname, never force on every render
 
 ## Working style
-- Build one feature at a time. Finish it (working + committed to Git) before starting the next.
-- After every significant change, commit to Git with a clear message.
-- If something is unclear, ask the user before guessing. The user prefers one clarifying question over a wrong assumption.
-- Write code with comments explaining the "why" for anything non-obvious.
-- Show test results after building each feature — e.g. "I added favorites, please verify by clicking the star icon on a channel."
+- Build one feature at a time, finish + commit before starting next
+- Commit after every working milestone with descriptive message
+- If unclear, ask the user rather than guess
+- Comment the "why" for non-obvious code, not the "what"
 
 ## Current project state
-- Vite + React + TypeScript project initialized in C:\iptv-player
-- Tailwind CSS v3, React Router v6, Zustand, TanStack Query v5, Dexie installed
-- Folder structure created: components, pages, stores, lib, types, hooks
-- Git initialized, connected to github.com/elmonair/iptv-player (private)
-- App.tsx currently shows "IPTV Player - Setup Complete" placeholder
-- NO features built yet
+
+### Completed
+- Project scaffolding (Vite + React + TypeScript + Tailwind)
+- Onboarding screen (Xtream Codes only — M3U URL tab hidden, code kept for post-MVP)
+- Zustand store for playlist sources
+- IndexedDB with Dexie v2 schema: sources, categories, channels, movies, series, episodes, syncMetadata
+- Web Crypto AES-GCM encryption for credentials
+- Vite dev proxy for Xtream API
+- Xtream API client (src/lib/xtream.ts) — all 7 endpoints
+- Xtream sync orchestrator (callback-based, not async generator)
+- Loading page with progress bar
+- Home page with reactive catalog counts (dexie-react-hooks useLiveQuery)
+- Re-sync button, Clear all data button
+- Strict Mode disabled
+- Video playback verified end-to-end (mpegts.js + real Xtream live stream)
+- TestPlayer diagnostic page at /test-player (accessible via URL, not linked in UI)
+
+### Deferred (post-MVP)
+- M3U URL parsing (code stub exists for M3uUrlForm, tab hidden)
+- Sync performance optimization (~100 items/sec, can be 3-5x faster)
+- Autocomplete attributes on form inputs
+- Production proxy on VPS
+
+### Not yet built
+- Channel list UI (Step 10 — next)
+- Movies/Series browsing (Step 12)
+- Real video player with channel switching (Step 11)
+- Search, Favorites, Recent channels, Continue watching, EPG
+- Settings page, Multi-language, VPS deployment
 
 ## Next feature to build
-Will be specified by the user. Do NOT start features without an explicit instruction.
+Step 10 — Live TV browsing UI with category sidebar and channel grid (virtualized).
+Do NOT start until explicitly asked.

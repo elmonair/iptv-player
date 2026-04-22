@@ -114,14 +114,6 @@ export default function Home() {
               Re-sync Playlist
             </button>
           )}
-          {source.type === 'xtream' && (
-            <button
-              onClick={() => navigate('/test-player')}
-              className="px-6 py-3 bg-slate-800 hover:bg-slate-700 text-white font-medium rounded-lg focus:outline-none focus:ring-4 focus:ring-slate-500/50 min-h-[44px]"
-            >
-              Test Player
-            </button>
-          )}
         </div>
 
         <button
