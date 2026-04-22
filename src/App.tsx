@@ -20,9 +20,15 @@ function AppContent() {
     if (initialRouteHandled.current) return
     if (!loaded) {
       loadSourcesFromDb().then(() => {
-        if (location.pathname === '/') {
-          const { sources } = usePlaylistStore.getState()
-          if (sources.length > 0) {
+        const { sources } = usePlaylistStore.getState()
+        const pathname = location.pathname
+
+        if (sources.length === 0) {
+          if (pathname !== '/') {
+            navigate('/', { replace: true })
+          }
+        } else {
+          if (pathname === '/' || pathname === '/loading') {
             navigate('/home', { replace: true })
           }
         }
