@@ -19,8 +19,7 @@ export default function Loading() {
     }
 
     if (source.type === 'm3u-url') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setProgress({ phase: 'complete', message: 'M3U URL support coming in Step 9B', percent: 100 })
+      setError('M3U URL support is not yet available. Please use Xtream Codes.')
       return
     }
 
