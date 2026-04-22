@@ -13,6 +13,20 @@ export default function TestPlayer() {
   const [status, setStatus] = useState<'loading' | 'playing' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [channelName, setChannelName] = useState<string>('')
+  const [readyToPlay, setReadyToPlay] = useState(false)
+
+  const handlePlayClick = async () => {
+    if (!videoRef.current) return
+    try {
+      await videoRef.current.play()
+      console.log('[TestPlayer] User-initiated play succeeded')
+    } catch (err) {
+      console.error('[TestPlayer] User-initiated play failed:', err)
+      const detail = err instanceof Error ? err.message : String(err)
+      setStatus('error')
+      setErrorMsg(`Play failed: ${detail}`)
+    }
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -90,17 +104,12 @@ export default function TestPlayer() {
           setErrorMsg('Video element error')
         }
 
-        console.log('[TestPlayer] Player created, calling load and play')
+        console.log('[TestPlayer] Player created, calling load')
         player.load()
 
-        try {
-          await player.play()
-        } catch (e) {
-          if (e instanceof Error && e.name === 'AbortError') {
-            console.log('[TestPlayer] play() aborted, ignoring')
-            return
-          }
-          throw e
+        if (!cancelled) {
+          setReadyToPlay(true)
+          console.log('[TestPlayer] Player ready, waiting for user click')
         }
       } catch (err) {
         console.error('[TestPlayer] Init failed:', err)
@@ -138,21 +147,37 @@ export default function TestPlayer() {
         </div>
 
         <div className="flex justify-center mb-6">
-          <video
-            ref={videoRef}
-            controls
-            autoPlay
-            muted
-            className="w-full max-w-3xl aspect-video bg-black rounded-lg"
-          />
+          <div className="relative w-full max-w-3xl">
+            <video
+              ref={videoRef}
+              controls
+              playsInline
+              className="w-full aspect-video bg-black rounded-lg"
+            />
+            {readyToPlay && status !== 'playing' && (
+              <button
+                onClick={handlePlayClick}
+                className="absolute inset-0 flex items-center justify-center bg-black/50 rounded-lg hover:bg-black/40 transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50"
+              >
+                <div className="w-20 h-20 bg-indigo-600 rounded-full flex items-center justify-center">
+                  <svg className="w-10 h-10 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </div>
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="text-center mb-8">
-          {status === 'loading' && (
+          {status === 'loading' && !readyToPlay && (
             <div className="flex items-center justify-center gap-2 text-slate-400">
               <Loader2 className="w-5 h-5 animate-spin" />
               <span>Starting playback...</span>
             </div>
+          )}
+          {readyToPlay && status === 'loading' && (
+            <p className="text-slate-400 text-base">Click play to start</p>
           )}
           {status === 'error' && (
             <p className="text-red-400 text-base">{errorMsg}</p>
