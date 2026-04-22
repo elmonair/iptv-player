@@ -3,7 +3,11 @@ import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-ro
 import Onboarding from './pages/Onboarding'
 import Loading from './pages/Loading'
 import Home from './pages/Home'
+import LiveTV from './pages/LiveTV'
+import Movies from './pages/Movies'
+import Series from './pages/Series'
 import TestPlayer from './pages/TestPlayer'
+import AppLayout from './components/AppLayout'
 import { usePlaylistStore } from './stores/playlistStore'
 
 function AppContent() {
@@ -13,23 +17,13 @@ function AppContent() {
   const initialRouteHandled = useRef(false)
 
   useEffect(() => {
-    // Only run the initial routing logic ONCE
     if (initialRouteHandled.current) return
     if (!loaded) {
-      // Load sources from DB first
       loadSourcesFromDb().then(() => {
-        // Only redirect if we're on the root path (initial load)
-        // Respect the user's URL if they deep-linked
         if (location.pathname === '/') {
           const { sources } = usePlaylistStore.getState()
-          if (sources.length === 0) {
-            // Stay on / (Onboarding)
-          }
-          // If sources exist, stay on / is fine too — user can manually go to /home
-          // Actually, if sources exist and we're on root, go to home
-          const hasSources = sources.length > 0
-          if (hasSources) {
-            navigate('/home', { replace: true })
+          if (sources.length > 0) {
+            navigate('/live', { replace: true })
           }
         }
         initialRouteHandled.current = true
@@ -52,7 +46,12 @@ function AppContent() {
     <Routes>
       <Route path="/" element={<Onboarding />} />
       <Route path="/loading" element={<Loading />} />
-      <Route path="/home" element={<Home />} />
+      <Route element={<AppLayout />}>
+        <Route path="/home" element={<Home />} />
+        <Route path="/live" element={<LiveTV />} />
+        <Route path="/movies" element={<Movies />} />
+        <Route path="/series" element={<Series />} />
+      </Route>
       <Route path="/test-player" element={<TestPlayer />} />
     </Routes>
   )
