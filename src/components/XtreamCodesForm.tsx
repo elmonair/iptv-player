@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePlaylistStore } from '../stores/playlistStore'
 
+const isSecureContext = typeof crypto !== 'undefined' && typeof crypto.subtle !== 'undefined'
+
 export default function XtreamCodesForm() {
   const navigate = useNavigate()
   const addSource = usePlaylistStore((state) => state.addSource)
@@ -78,6 +80,20 @@ export default function XtreamCodesForm() {
   const clearUrlError = () => setUrlError('')
   const clearUsernameError = () => setUsernameError('')
   const clearPasswordError = () => setPasswordError('')
+
+  if (!isSecureContext) {
+    return (
+      <div className="space-y-4">
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4">
+          <p className="text-amber-400 font-semibold mb-2">Secure connection required</p>
+          <p className="text-slate-400 text-sm">
+            Xtream Codes credentials must be encrypted, which requires a secure context (HTTPS or localhost).
+            Please access this app at <span className="text-white font-mono">http://localhost:5173/</span> or via HTTPS.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
