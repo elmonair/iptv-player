@@ -4,7 +4,6 @@ import { Loader2 } from 'lucide-react'
 import mpegts from 'mpegts.js'
 import { db } from '../lib/db'
 import { usePlaylistStore } from '../stores/playlistStore'
-import { decryptString } from '../lib/crypto'
 
 export default function TestPlayer() {
   const navigate = useNavigate()
@@ -30,11 +29,11 @@ export default function TestPlayer() {
       console.log('[TestPlayer] Source found, type:', source.type)
 
       try {
-        const serverUrl = await decryptString(source.serverUrl)
-        const username = await decryptString(source.username)
-        const password = await decryptString(source.password)
+        const serverUrl = source.serverUrl
+        const username = source.username
+        const password = source.password
 
-        console.log('[TestPlayer] Credentials decrypted. Server:', serverUrl.replace(/\/\/.*@/, '//[REDACTED]@'))
+        console.log('[TestPlayer] Credentials loaded. Server:', serverUrl.replace(/\/\/.*@/, '//[REDACTED]@'))
 
         const channel = await db.channels.where('sourceId').equals(source.id).first()
         if (!channel) {
