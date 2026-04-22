@@ -1,19 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { syncXtreamPlaylist, type SyncProgress } from '../lib/xtreamSync'
 
+const syncsInFlight = new Set<string>()
+
 export default function Loading() {
   const navigate = useNavigate()
   const [progress, setProgress] = useState<SyncProgress | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const hasStarted = useRef(false)
 
   useEffect(() => {
-    if (hasStarted.current) return
-    hasStarted.current = true
-
     const source = usePlaylistStore.getState().getActiveSource()
     if (!source) {
       navigate('/')
@@ -25,6 +23,12 @@ export default function Loading() {
       setProgress({ phase: 'complete', message: 'M3U URL support coming in Step 9B', percent: 100 })
       return
     }
+
+    if (syncsInFlight.has(source.id)) {
+      console.log('[Loading] Sync already in flight for this source, skipping duplicate')
+      return
+    }
+    syncsInFlight.add(source.id)
 
     let cancelled = false
 
@@ -40,6 +44,8 @@ export default function Loading() {
       if (cancelled) return
       const message = err instanceof Error ? err.message : 'Unknown error'
       setError(message)
+    }).finally(() => {
+      syncsInFlight.delete(source.id)
     })
 
     return () => {
@@ -51,7 +57,6 @@ export default function Loading() {
   const handleRetry = () => {
     setError(null)
     setProgress(null)
-    hasStarted.current = false
     window.location.reload()
   }
 

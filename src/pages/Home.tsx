@@ -1,13 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { db } from '../lib/db'
-
-type CatalogCounts = {
-  channels: number
-  movies: number
-  series: number
-}
+import { useLiveQuery } from 'dexie-react-hooks'
 
 export default function Home() {
   const navigate = useNavigate()
@@ -16,37 +11,21 @@ export default function Home() {
 
   const source = getActiveSource()
   const [isClearing, setIsClearing] = useState(false)
-  const [counts, setCounts] = useState<CatalogCounts>({ channels: 0, movies: 0, series: 0 })
 
-  useEffect(() => {
-    async function loadCounts() {
-      if (!source) return
+  const counts = useLiveQuery(
+    async () => {
+      if (!source) return null
 
-      try {
-        const metadata = await db.syncMetadata.get(source.id)
+      const [channels, movies, series] = await Promise.all([
+        db.channels.where('sourceId').equals(source.id).count(),
+        db.movies.where('sourceId').equals(source.id).count(),
+        db.series.where('sourceId').equals(source.id).count(),
+      ])
 
-        if (metadata) {
-          setCounts({
-            channels: metadata.channelsCount,
-            movies: metadata.moviesCount,
-            series: metadata.seriesCount,
-          })
-        } else {
-          const [channels, movies, series] = await Promise.all([
-            db.channels.where('sourceId').equals(source.id).count(),
-            db.movies.where('sourceId').equals(source.id).count(),
-            db.series.where('sourceId').equals(source.id).count(),
-          ])
-
-          setCounts({ channels, movies, series })
-        }
-      } catch (error) {
-        console.error('Failed to load catalog counts:', error)
-      }
-    }
-
-    loadCounts()
-  }, [source])
+      return { channels, movies, series }
+    },
+    [source],
+  )
 
   const handleClearData = async () => {
     if (!confirm('Are you sure? This will delete all playlists and encryption keys.')) {
@@ -78,8 +57,6 @@ export default function Home() {
     })
   }
 
-  const hasCatalog = counts.channels > 0 || counts.movies > 0 || counts.series > 0
-
   return (
     <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 sm:p-6">
       <div className="w-full max-w-2xl">
@@ -90,7 +67,19 @@ export default function Home() {
           <p className="text-base text-slate-500 mt-1">Created: {formatDate(source.createdAt)}</p>
         </div>
 
-        {hasCatalog && (
+        {counts === undefined && (
+          <div className="text-center mb-6">
+            <p className="text-slate-500 text-sm">Loading catalog info...</p>
+          </div>
+        )}
+
+        {counts !== undefined && !counts && (
+          <div className="text-center mb-6">
+            <p className="text-slate-500 text-sm">No catalog data available. Sync your playlist to see content.</p>
+          </div>
+        )}
+
+        {counts && (counts.channels > 0 || counts.movies > 0 || counts.series > 0) && (
           <div className="bg-slate-900 rounded-xl p-6 mb-6 border border-slate-800">
             <h2 className="text-xl font-semibold text-white mb-4">Catalog Summary</h2>
             <div className="grid grid-cols-3 gap-4">
@@ -110,7 +99,7 @@ export default function Home() {
           </div>
         )}
 
-        {!hasCatalog && (
+        {counts && !(counts.channels > 0 || counts.movies > 0 || counts.series > 0) && (
           <div className="text-center mb-6">
             <p className="text-slate-500 text-sm">No catalog data available. Sync your playlist to see content.</p>
           </div>
