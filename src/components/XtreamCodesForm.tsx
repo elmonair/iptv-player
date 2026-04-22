@@ -67,8 +67,9 @@ export default function XtreamCodesForm() {
       })
       navigate('/loading')
     } catch (error) {
-      setSubmitError('Failed to save playlist. Please try again.')
-      console.error('Failed to save playlist:', error)
+      const detail = error instanceof Error ? error.message : String(error)
+      console.error('[XtreamCodesForm] addSource failed:', error)
+      setSubmitError(`Failed to save playlist: ${detail}`)
     } finally {
       setIsSubmitting(false)
     }

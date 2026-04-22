@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { db, type PlaylistSourceRecord } from '../lib/db'
 import { encryptString, decryptString, clearEncryptionKey } from '../lib/crypto'
+import { generateId } from '../lib/uuid'
 
 export type M3UUrlSource = {
   id: string
@@ -83,7 +84,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
   },
 
   addSource: async (source) => {
-    const id = crypto.randomUUID()
+    const id = generateId()
     const createdAt = Date.now()
 
     const record: PlaylistSourceRecord = {
