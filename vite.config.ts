@@ -50,6 +50,7 @@ export default defineConfig(({ mode }) => {
 
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(config as any).server = {
+        host: true,
         proxy: {
           '/api/xtream': proxyConfig,
         },
