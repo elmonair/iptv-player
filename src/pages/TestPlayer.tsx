@@ -5,26 +5,32 @@ import mpegts from 'mpegts.js'
 import { db } from '../lib/db'
 import { usePlaylistStore } from '../stores/playlistStore'
 
+const instancesInFlight = new Set<string>()
+
 export default function TestPlayer() {
   const navigate = useNavigate()
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerRef = useRef<ReturnType<typeof mpegts.createPlayer> | null>(null)
-  const initRef = useRef(false)
 
   const [status, setStatus] = useState<'loading' | 'playing' | 'error'>('loading')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [channelName, setChannelName] = useState<string>('')
 
   useEffect(() => {
-    if (initRef.current) return
-    initRef.current = true
-
     const init = async () => {
       const source = usePlaylistStore.getState().getActiveSource()
       if (!source || source.type !== 'xtream') {
         navigate('/home')
         return
       }
+
+      if (instancesInFlight.has(source.id)) {
+        console.log('[TestPlayer] Sync already in flight for this source, skipping duplicate')
+        return
+      }
+      instancesInFlight.add(source.id)
+
+      let cancelled = false
 
       console.log('[TestPlayer] Source found, type:', source.type)
 
@@ -36,9 +42,15 @@ export default function TestPlayer() {
         console.log('[TestPlayer] Credentials loaded. Server:', serverUrl.replace(/\/\/.*@/, '//[REDACTED]@'))
 
         const channel = await db.channels.where('sourceId').equals(source.id).first()
+        if (cancelled) {
+          instancesInFlight.delete(source.id)
+          return
+        }
+
         if (!channel) {
           setStatus('error')
           setErrorMsg('No channels in database')
+          instancesInFlight.delete(source.id)
           return
         }
 
@@ -52,6 +64,7 @@ export default function TestPlayer() {
 
         console.log('[TestPlayer] mpegts.js feature check:', mpegts.getFeatureList())
         if (!mpegts.getFeatureList().mseLivePlayback) {
+          instancesInFlight.delete(source.id)
           throw new Error('Browser does not support MSE live playback (mpegts.js requires it)')
         }
 
@@ -88,17 +101,41 @@ export default function TestPlayer() {
           videoRef.current.onplaying = () => console.log('[TestPlayer] video playing event')
           videoRef.current.onstalled = () => console.log('[TestPlayer] video stalled event')
 
+          if (cancelled) {
+            instancesInFlight.delete(source.id)
+            return
+          }
+
           player.load()
           console.log('[TestPlayer] Player created, calling load and play')
-          player.play()
+
+          try {
+            await player.play()
+          } catch (e) {
+            if (e instanceof Error && e.name === 'AbortError') {
+              console.log('[TestPlayer] play() aborted (likely Strict Mode cleanup), ignoring')
+              instancesInFlight.delete(source.id)
+              return
+            }
+            throw e
+          }
+
+          if (cancelled) {
+            instancesInFlight.delete(source.id)
+            return
+          }
+
           setStatus('playing')
           console.log('[TestPlayer] Status set to playing')
         }
+
+        instancesInFlight.delete(source.id)
       } catch (err) {
         console.error('[TestPlayer] Init failed:', err)
         setStatus('error')
         const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
         setErrorMsg(`Failed to initialize player. ${detail}`)
+        instancesInFlight.delete(source.id)
       }
     }
 
@@ -116,6 +153,7 @@ export default function TestPlayer() {
       if (videoRef.current) {
         videoRef.current.src = ''
       }
+      instancesInFlight.clear()
     }
   }, [navigate])
 
