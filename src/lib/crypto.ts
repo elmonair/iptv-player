@@ -31,6 +31,10 @@ const IV_LENGTH = 12
  * Gets an existing encryption key from localStorage or creates a new one
  */
 export async function getOrCreateEncryptionKey(): Promise<CryptoKey> {
+  if (!crypto.subtle) {
+    throw new Error('AES-GCM encryption requires a secure context (HTTPS or localhost). Access this app via https:// or http://localhost/ to use encryption.')
+  }
+
   const storedKey = localStorage.getItem(KEY_STORAGE_KEY)
 
   if (storedKey) {
