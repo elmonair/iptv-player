@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom'
 import Onboarding from './pages/Onboarding'
 import Loading from './pages/Loading'
 import Home from './pages/Home'
+import TestPlayer from './pages/TestPlayer'
 import { usePlaylistStore } from './stores/playlistStore'
 
 function AppContent() {
@@ -29,6 +30,7 @@ function AppContent() {
       <Route path="/" element={<Onboarding />} />
       <Route path="/loading" element={<Loading />} />
       <Route path="/home" element={<Home />} />
+      <Route path="/test-player" element={<TestPlayer />} />
     </Routes>
   )
 }
