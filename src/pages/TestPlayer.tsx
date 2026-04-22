@@ -5,8 +5,6 @@ import mpegts from 'mpegts.js'
 import { db } from '../lib/db'
 import { usePlaylistStore } from '../stores/playlistStore'
 
-const instancesInFlight = new Set<string>()
-
 export default function TestPlayer() {
   const navigate = useNavigate()
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -17,6 +15,8 @@ export default function TestPlayer() {
   const [channelName, setChannelName] = useState<string>('')
 
   useEffect(() => {
+    let cancelled = false
+
     const init = async () => {
       const source = usePlaylistStore.getState().getActiveSource()
       if (!source || source.type !== 'xtream') {
@@ -24,38 +24,22 @@ export default function TestPlayer() {
         return
       }
 
-      if (instancesInFlight.has(source.id)) {
-        console.log('[TestPlayer] Sync already in flight for this source, skipping duplicate')
-        return
-      }
-      instancesInFlight.add(source.id)
-
-      let cancelled = false
-
-      console.log('[TestPlayer] Source found, type:', source.type)
-
       try {
+        console.log('[TestPlayer] Source found, type:', source.type)
+
         const serverUrl = source.serverUrl
         const username = source.username
         const password = source.password
-
-        console.log('[TestPlayer] Credentials loaded. Server:', serverUrl.replace(/\/\/.*@/, '//[REDACTED]@'))
+        console.log('[TestPlayer] Credentials loaded. Server:', serverUrl)
 
         const channel = await db.channels.where('sourceId').equals(source.id).first()
-        if (cancelled) {
-          instancesInFlight.delete(source.id)
-          return
-        }
-
+        if (cancelled) return
         if (!channel) {
           setStatus('error')
           setErrorMsg('No channels in database')
-          instancesInFlight.delete(source.id)
           return
         }
-
         console.log('[TestPlayer] First channel:', { name: channel.name, streamId: channel.streamId, streamType: channel.streamType })
-
         setChannelName(channel.name)
 
         const streamUrl = `${serverUrl}/live/${username}/${password}/${channel.streamId}.ts`
@@ -64,96 +48,84 @@ export default function TestPlayer() {
 
         console.log('[TestPlayer] mpegts.js feature check:', mpegts.getFeatureList())
         if (!mpegts.getFeatureList().mseLivePlayback) {
-          instancesInFlight.delete(source.id)
-          throw new Error('Browser does not support MSE live playback (mpegts.js requires it)')
+          throw new Error('Browser does not support MSE live playback')
         }
+
+        if (cancelled) return
 
         const player = mpegts.createPlayer({
           type: 'mpegts',
           url: streamUrl,
           isLive: true,
         })
-
         playerRef.current = player
 
-        if (videoRef.current) {
-          player.attachMediaElement(videoRef.current)
-
-          player.on(mpegts.Events.ERROR, (_type, _detail, info) => {
-            setStatus('error')
-            setErrorMsg(info?.message ?? 'Player error occurred')
-          })
-
-          player.on(mpegts.Events.LOADING_COMPLETE, () => {
-            console.log('[TestPlayer] mpegts LOADING_COMPLETE event')
-          })
-
-          player.on(mpegts.Events.RECOVERED_EARLY_EOF, () => {
-            console.log('[TestPlayer] mpegts RECOVERED_EARLY_EOF event')
-          })
-
-          videoRef.current.onerror = () => {
-            setStatus('error')
-            setErrorMsg('Video element error occurred')
-          }
-
-          videoRef.current.oncanplay = () => console.log('[TestPlayer] video canplay event')
-          videoRef.current.onplaying = () => console.log('[TestPlayer] video playing event')
-          videoRef.current.onstalled = () => console.log('[TestPlayer] video stalled event')
-
-          if (cancelled) {
-            instancesInFlight.delete(source.id)
-            return
-          }
-
-          player.load()
-          console.log('[TestPlayer] Player created, calling load and play')
-
-          try {
-            await player.play()
-          } catch (e) {
-            if (e instanceof Error && e.name === 'AbortError') {
-              console.log('[TestPlayer] play() aborted (likely Strict Mode cleanup), ignoring')
-              instancesInFlight.delete(source.id)
-              return
-            }
-            throw e
-          }
-
-          if (cancelled) {
-            instancesInFlight.delete(source.id)
-            return
-          }
-
-          setStatus('playing')
-          console.log('[TestPlayer] Status set to playing')
+        const videoEl = videoRef.current
+        if (!videoEl || cancelled) {
+          player.destroy()
+          return
         }
 
-        instancesInFlight.delete(source.id)
+        player.attachMediaElement(videoEl)
+
+        player.on(mpegts.Events.ERROR, (_type: string, _detail: string, info: { message?: string }) => {
+          console.error('[TestPlayer] mpegts ERROR:', _type, _detail, info)
+          setStatus('error')
+          setErrorMsg(info?.message ?? 'Player error occurred')
+        })
+
+        player.on(mpegts.Events.LOADING_COMPLETE, () => {
+          console.log('[TestPlayer] mpegts LOADING_COMPLETE')
+        })
+
+        videoEl.oncanplay = () => console.log('[TestPlayer] video canplay event')
+        videoEl.onplaying = () => {
+          console.log('[TestPlayer] video playing event')
+          if (!cancelled) setStatus('playing')
+        }
+        videoEl.onstalled = () => console.log('[TestPlayer] video stalled event')
+        videoEl.onerror = () => {
+          console.error('[TestPlayer] video error:', videoEl.error)
+          setStatus('error')
+          setErrorMsg('Video element error')
+        }
+
+        console.log('[TestPlayer] Player created, calling load and play')
+        player.load()
+
+        try {
+          await player.play()
+        } catch (e) {
+          if (e instanceof Error && e.name === 'AbortError') {
+            console.log('[TestPlayer] play() aborted, ignoring')
+            return
+          }
+          throw e
+        }
       } catch (err) {
         console.error('[TestPlayer] Init failed:', err)
+        if (cancelled) return
         setStatus('error')
         const detail = err instanceof Error ? `${err.name}: ${err.message}` : String(err)
         setErrorMsg(`Failed to initialize player. ${detail}`)
-        instancesInFlight.delete(source.id)
       }
     }
 
     init()
 
     return () => {
+      cancelled = true
       const player = playerRef.current
       if (player) {
-        player.pause()
-        player.unload()
-        player.detachMediaElement()
-        player.destroy()
+        try { player.pause() } catch { /* ignore */ }
+        try { player.unload() } catch { /* ignore */ }
+        try { player.detachMediaElement() } catch { /* ignore */ }
+        try { player.destroy() } catch { /* ignore */ }
         playerRef.current = null
       }
       if (videoRef.current) {
         videoRef.current.src = ''
       }
-      instancesInFlight.clear()
     }
   }, [navigate])
 
