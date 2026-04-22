@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@tanstack/react-query": "^5.99.2",
+    "@tanstack/react-virtual": "^3.13.24",
     "dexie": "^4.4.2",
     "dexie-react-hooks": "^4.4.0",
     "lucide-react": "^1.8.0",
