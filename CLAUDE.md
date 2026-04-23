@@ -15,12 +15,13 @@ The project owner has no prior coding experience. AI writes the code. Write clea
 - Data fetching/caching: TanStack Query v5
 - Local storage: Dexie.js with dexie-react-hooks
 - Video player: mpegts.js (for MPEG-TS live streams)
+- Virtualization: @tanstack/react-virtual
 - M3U parsing: iptv-playlist-parser (not yet installed; post-MVP)
 - Icons: lucide-react
 
 ## Architecture rules
 - Folder structure: src/components, src/pages, src/stores, src/lib, src/types, src/hooks
-- One component per file. PascalCase filenames.
+- One component per file. PascalCase filenames for components, camelCase for utilities.
 - TypeScript strict, avoid `any`
 - Zustand for global state, never Context/Redux
 - TanStack Query for async data (no raw useEffect + fetch)
@@ -45,6 +46,9 @@ Located in src/main.tsx. Do NOT re-enable. It conflicts with media libraries (mp
 - Exposed DECRYPTED via getActiveSource() — callers must NOT call decryptString() again
 - Never log credentials, even in error messages
 
+### UUID generation
+Use generateId() from src/lib/uuid — crypto.randomUUID() fails in non-secure contexts (LAN IPs). generateId() falls back to crypto.getRandomValues() which works everywhere.
+
 ### Vite environment variables
 In vite.config.ts, use `loadEnv(mode, process.cwd(), '')` — never `process.env.X` directly. The latter doesn't read .env.local.
 
@@ -59,12 +63,15 @@ A response body can only be read ONCE. Always read into a variable first, then p
 - Stream URL format: `{serverUrl}/live/{username}/{password}/{streamId}.ts`
 
 ### App.tsx routing
-Initial-load routing (redirect to /home if sources exist, else to /) runs ONCE via useRef guard. Never add useEffect that force-redirects on every render — it breaks navigation to specific routes.
+Initial-load routing runs ONCE via useRef guard. Never add useEffect that force-redirects on every render — it breaks navigation to specific routes.
 
 ### Proxy setup
 - Dev only: Vite proxy at /api/xtream/* routes to VITE_XTREAM_PROXY_TARGET (from .env.local)
 - Production: will need a server-side proxy on the VPS (not yet built)
 - Stream URLs go directly to the Xtream server (Chrome bypasses CORS for media elements)
+
+### Secure context requirement
+AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhost). The app shows a clear error in XtreamCodesForm when accessed via LAN IP without HTTPS.
 
 ## What NOT to do
 - Do NOT add features not asked for
@@ -83,16 +90,17 @@ Initial-load routing (redirect to /home if sources exist, else to /) runs ONCE v
 - When it succeeds, log that it succeeded
 - Trust console logs and Network tab over UI state during debugging
 
-## Post-mortem lessons from Step 9 (do not repeat)
+## Post-mortem lessons (do not repeat)
 1. Vite configs use loadEnv(), not process.env
 2. HTTP response bodies read exactly once
 3. Don't mix async generators with callbacks — pick one pattern
-4. Media libraries fight React Strict Mode — it's disabled here for that reason
-5. Credentials decrypted ONCE by the store; don't re-decrypt elsewhere
+4. Media libraries fight React Strict Mode — disabled here
+5. Credentials decrypted ONCE by store; don't re-decrypt elsewhere
 6. Every catch block logs err before setting user message
-7. When changing routing behavior, audit all callers of affected routes
+7. Route redirects must respect current pathname, never force on every render
 8. Chrome needs user-click for first video play
-9. Route redirects must respect current pathname, never force on every render
+9. crypto.randomUUID fails in non-secure contexts; use generateId() from uuid.ts
+10. crypto.subtle also requires secure context; guard with crypto.subtle check
 
 ## Working style
 - Build one feature at a time, finish + commit before starting next
@@ -107,7 +115,8 @@ Initial-load routing (redirect to /home if sources exist, else to /) runs ONCE v
 - Onboarding screen (Xtream Codes only — M3U URL tab hidden, code kept for post-MVP)
 - Zustand store for playlist sources
 - IndexedDB with Dexie v2 schema: sources, categories, channels, movies, series, episodes, syncMetadata
-- Web Crypto AES-GCM encryption for credentials
+- Web Crypto AES-GCM encryption for credentials (with secure-context guard)
+- UUID generation utility (src/lib/uuid.ts) with non-secure context fallback
 - Vite dev proxy for Xtream API
 - Xtream API client (src/lib/xtream.ts) — all 7 endpoints
 - Xtream sync orchestrator (callback-based, not async generator)
@@ -115,7 +124,10 @@ Initial-load routing (redirect to /home if sources exist, else to /) runs ONCE v
 - Home page with reactive catalog counts (dexie-react-hooks useLiveQuery)
 - Re-sync button, Clear all data button
 - Strict Mode disabled
-- Video playback verified end-to-end (mpegts.js + real Xtream live stream)
+- AppLayout shell with header (IPTV Player branding + Search/Settings buttons) and sidebar navigation (Live TV / Movies / Series)
+- Live TV page (Step 10A): CategorySidebar + ChannelGrid placeholder
+- Live TV browser (Step 10B): CategorySidebar with counts, virtualized ChannelGrid (53k+ channels), ChannelCard with logo fallback to initials
+- Watch page (Step 10C): Full-screen video player, mpegts.js, auto-play with click-to-play fallback overlay, back-to-live navigation
 - TestPlayer diagnostic page at /test-player (accessible via URL, not linked in UI)
 
 ### Deferred (post-MVP)
@@ -125,12 +137,14 @@ Initial-load routing (redirect to /home if sources exist, else to /) runs ONCE v
 - Production proxy on VPS
 
 ### Not yet built
-- Channel list UI (Step 10 — next)
-- Movies/Series browsing (Step 12)
-- Real video player with channel switching (Step 11)
+- Channel quick-zap (remote-style up/down to change channels)
+- Fullscreen toggle on Watch page
+- Audio track / subtitle selection
+- Movies browsing UI (Step 12)
+- Series browsing UI (Step 12)
 - Search, Favorites, Recent channels, Continue watching, EPG
 - Settings page, Multi-language, VPS deployment
 
 ## Next feature to build
-Step 10 — Live TV browsing UI with category sidebar and channel grid (virtualized).
+Step 11 — Channel quick-zap (up/down remote-style navigation) and fullscreen toggle on Watch page.
 Do NOT start until explicitly asked.
