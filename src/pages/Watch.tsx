@@ -360,34 +360,32 @@ export default function Watch() {
       </header>
 
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        {/* Video Section */}
-        <div className="flex-1 flex flex-col bg-black min-h-0">
-          {/* Video Player */}
-          <div className="flex-1 flex items-center justify-center p-2 sm:p-4 min-h-0">
-            <div className="relative w-full h-full flex items-center justify-center">
-              <video
-                ref={videoRef}
-                controls
-                playsInline
-                className="max-w-full max-h-full object-contain"
-              />
-              {status === 'ready-click-to-play' && (
-                <button
-                  onClick={handlePlayClick}
-                  className="absolute inset-0 flex items-center justify-center bg-black/60 hover:bg-black/50 transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50"
-                >
-                  <div className="w-16 h-16 sm:w-20 sm:h-20 bg-indigo-600 rounded-full flex items-center justify-center hover:bg-indigo-500 transition-colors">
-                    <svg className="w-8 h-8 sm:w-10 sm:h-10 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                  </div>
-                </button>
-              )}
-            </div>
+        {/* Video Section - takes remaining space */}
+        <div className="flex-1 flex flex-col bg-black">
+          {/* Video Player - fills this container */}
+          <div className="relative flex-1 flex items-center justify-center p-2 sm:p-4">
+            <video
+              ref={videoRef}
+              controls
+              playsInline
+              className="w-full h-full object-contain"
+            />
+            {status === 'ready-click-to-play' && (
+              <button
+                onClick={handlePlayClick}
+                className="absolute inset-0 flex items-center justify-center bg-black/60 hover:bg-black/50 transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50"
+              >
+                <div className="w-16 h-16 sm:w-20 sm:h-20 bg-indigo-600 rounded-full flex items-center justify-center hover:bg-indigo-500 transition-colors">
+                  <svg className="w-8 h-8 sm:w-10 sm:h-10 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </div>
+              </button>
+            )}
           </div>
 
           {/* Status Bar */}
-          <div className="flex-shrink-0 px-4 py-2 flex items-center justify-between">
+          <div className="flex-shrink-0 px-4 py-2 flex items-center justify-between bg-slate-900 border-t border-slate-800">
             <div>
               {status === 'loading' && (
                 <div className="flex items-center gap-2 text-slate-400">
