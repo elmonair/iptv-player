@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Search, Settings, MoreVertical, ChevronDown, ChevronUp, Star, ChevronRight } from 'lucide-react'
+import { ChevronDown, ChevronUp, Star, ChevronRight } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../lib/db'
 import type { ChannelRecord } from '../lib/db'
+import { TopNavBar } from '../components/TopNavBar'
 
 type Tab = 'channels' | 'movies' | 'series'
 
@@ -87,187 +88,158 @@ export default function ChannelCategories() {
 
   if (!activeSource) {
     return (
-      <div className="h-full flex items-center justify-center">
-        <p className="text-slate-400">No playlist active</p>
+      <div className="min-h-screen bg-slate-900">
+        <TopNavBar />
+        <div className="flex items-center justify-center h-[calc(100vh-64px)]">
+          <p className="text-slate-400">No playlist active</p>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="h-full flex flex-col lg:flex-row bg-slate-900">
-      {/* Header - Mobile only */}
-      <header className="h-14 sm:h-16 flex-shrink-0 bg-slate-900 border-b border-slate-700 flex items-center justify-between px-4 lg:hidden">
-        <h1 className="text-lg sm:text-xl font-bold text-white">
-          IPTV <span className="text-yellow-500">Player</span>
-        </h1>
-        <div className="flex items-center gap-1 sm:gap-2">
-          <button className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50">
-            <Search size={20} />
-          </button>
-          <button className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50">
-            <Settings size={20} />
-          </button>
-          <button className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50">
-            <MoreVertical size={20} />
-          </button>
-        </div>
-      </header>
+    <div className="min-h-screen bg-slate-900">
+      <TopNavBar />
 
-      {/* Left Column: Categories - Desktop fixed, Mobile full */}
-      <div className={`flex-shrink-0 bg-slate-900 flex flex-col ${isDesktop ? 'w-[400px] border-r border-slate-700' : 'flex-1'}`}>
-        {/* Desktop Header */}
-        <header className="hidden lg:flex-shrink-0 lg:h-14 lg:bg-slate-900 lg:border-b lg:border-slate-700 lg:items-center lg:justify-between lg:px-4">
-          <h1 className="text-xl font-bold text-white">
-            IPTV <span className="text-yellow-500">Player</span>
-          </h1>
-          <div className="flex items-center gap-2">
-            <button className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50">
-              <Search size={20} />
+      <div className="flex flex-col lg:flex-row">
+        {/* Left Column: Categories */}
+        <div className={`flex-shrink-0 bg-slate-900 flex flex-col ${isDesktop ? 'w-[400px] border-r border-slate-700' : 'w-full'}`}>
+          {/* Playlist Info */}
+          <button
+            onClick={() => setPlaylistExpanded(!playlistExpanded)}
+            className="w-full bg-slate-800 px-4 py-3 border-b border-slate-700 flex items-center justify-between hover:bg-slate-750 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
+          >
+            <div className="flex-1 text-left">
+              <p className="text-base font-medium text-white truncate">{activeSource.name}</p>
+              {playlistExpanded && (
+                <p className="text-sm text-slate-400 truncate">
+                  {activeSource.type === 'xtream' ? activeSource.serverUrl : activeSource.url}
+                </p>
+              )}
+            </div>
+            <div className="w-10 h-10 flex items-center justify-center text-slate-400">
+              {playlistExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+            </div>
+          </button>
+
+          {/* Tabs */}
+          <div className="flex gap-4 sm:gap-6 px-4 bg-slate-900 border-b border-slate-700 flex-shrink-0">
+            <button
+              onClick={() => { setSelectedTab('channels'); setSelectedCategoryId(null) }}
+              className={`h-12 text-base font-medium border-b-2 transition-colors focus:outline-none ${
+                selectedTab === 'channels'
+                  ? 'text-yellow-500 border-yellow-500'
+                  : 'text-slate-400 border-transparent hover:text-white'
+              }`}
+            >
+              Channels
             </button>
-            <button className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50">
-              <Settings size={20} />
+            <button
+              onClick={() => { setSelectedTab('movies'); setSelectedCategoryId(null) }}
+              className={`h-12 text-base font-medium border-b-2 transition-colors focus:outline-none ${
+                selectedTab === 'movies'
+                  ? 'text-yellow-500 border-yellow-500'
+                  : 'text-slate-400 border-transparent hover:text-white'
+              }`}
+            >
+              Movies
             </button>
-            <button className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50">
-              <MoreVertical size={20} />
+            <button
+              onClick={() => { setSelectedTab('series'); setSelectedCategoryId(null) }}
+              className={`h-12 text-base font-medium border-b-2 transition-colors focus:outline-none ${
+                selectedTab === 'series'
+                  ? 'text-yellow-500 border-yellow-500'
+                  : 'text-slate-400 border-transparent hover:text-white'
+              }`}
+            >
+              Series
             </button>
           </div>
-        </header>
 
-        {/* Playlist Info */}
-        <button
-          onClick={() => setPlaylistExpanded(!playlistExpanded)}
-          className="w-full bg-slate-800 px-4 py-3 border-b border-slate-700 flex items-center justify-between hover:bg-slate-750 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
-        >
-          <div className="flex-1 text-left">
-            <p className="text-base font-medium text-white truncate">{activeSource.name}</p>
-            {playlistExpanded && (
-              <p className="text-sm text-slate-400 truncate">
-                {activeSource.type === 'xtream' ? activeSource.serverUrl : activeSource.url}
-              </p>
+          {/* Category List */}
+          <div className="flex-1 overflow-y-auto">
+            {selectedTab === 'channels' && (
+              <>
+                <CategoryListItem
+                  name="All channels"
+                  count={totalCount}
+                  isActive={displayCategoryId === null}
+                  onClick={() => handleCategoryClick(null)}
+                  onMouseEnter={() => setHoveredCategoryId(null)}
+                  onMouseLeave={() => setHoveredCategoryId(null)}
+                />
+                <CategoryListItem
+                  name="Favorites"
+                  count={0}
+                  starred
+                  isActive={false}
+                  onClick={() => {}}
+                  onMouseEnter={() => {}}
+                  onMouseLeave={() => {}}
+                />
+              </>
             )}
-          </div>
-          <div className="w-10 h-10 flex items-center justify-center text-slate-400">
-            {playlistExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-          </div>
-        </button>
 
-        {/* Tabs */}
-        <div className="flex gap-4 sm:gap-6 px-4 bg-slate-900 border-b border-slate-700 flex-shrink-0">
-          <button
-            onClick={() => { setSelectedTab('channels'); setSelectedCategoryId(null) }}
-            className={`h-12 text-base font-medium border-b-2 transition-colors focus:outline-none ${
-              selectedTab === 'channels'
-                ? 'text-yellow-500 border-yellow-500'
-                : 'text-slate-400 border-transparent hover:text-white'
-            }`}
-          >
-            Channels
-          </button>
-          <button
-            onClick={() => { setSelectedTab('movies'); setSelectedCategoryId(null) }}
-            className={`h-12 text-base font-medium border-b-2 transition-colors focus:outline-none ${
-              selectedTab === 'movies'
-                ? 'text-yellow-500 border-yellow-500'
-                : 'text-slate-400 border-transparent hover:text-white'
-            }`}
-          >
-            Movies
-          </button>
-          <button
-            onClick={() => { setSelectedTab('series'); setSelectedCategoryId(null) }}
-            className={`h-12 text-base font-medium border-b-2 transition-colors focus:outline-none ${
-              selectedTab === 'series'
-                ? 'text-yellow-500 border-yellow-500'
-                : 'text-slate-400 border-transparent hover:text-white'
-            }`}
-          >
-            Series
-          </button>
-        </div>
-
-        {/* Category List */}
-        <div className="flex-1 overflow-y-auto">
-          {selectedTab === 'channels' && (
-            <>
+            {categories?.map(cat => (
               <CategoryListItem
-                name="All channels"
-                count={totalCount}
-                isActive={displayCategoryId === null}
-                onClick={() => handleCategoryClick(null)}
-                onMouseEnter={() => setHoveredCategoryId(null)}
+                key={cat.id}
+                name={cat.name}
+                count={channelCounts?.get(cat.id) ?? 0}
+                isActive={displayCategoryId === cat.id}
+                onClick={() => handleCategoryClick(cat.id)}
+                onMouseEnter={() => setHoveredCategoryId(cat.id)}
                 onMouseLeave={() => setHoveredCategoryId(null)}
               />
-              <CategoryListItem
-                name="Favorites"
-                count={0}
-                starred
-                isActive={false}
-                onClick={() => {}}
-                onMouseEnter={() => {}}
-                onMouseLeave={() => {}}
-              />
-            </>
-          )}
+            ))}
 
-          {categories?.map(cat => (
-            <CategoryListItem
-              key={cat.id}
-              name={cat.name}
-              count={channelCounts?.get(cat.id) ?? 0}
-              isActive={displayCategoryId === cat.id}
-              onClick={() => handleCategoryClick(cat.id)}
-              onMouseEnter={() => setHoveredCategoryId(cat.id)}
-              onMouseLeave={() => setHoveredCategoryId(null)}
-            />
-          ))}
-
-          {categories?.length === 0 && (
-            <div className="flex items-center justify-center h-32">
-              <p className="text-slate-400 text-base">
-                {selectedTab === 'channels' ? 'No channel categories' : selectedTab === 'movies' ? 'No movies' : 'No series'}
-              </p>
-            </div>
-          )}
+            {categories?.length === 0 && (
+              <div className="flex items-center justify-center h-32">
+                <p className="text-slate-400 text-base">
+                  {selectedTab === 'channels' ? 'No channel categories' : selectedTab === 'movies' ? 'No movies' : 'No series'}
+                </p>
+              </div>
+            )}
+          </div>
         </div>
+
+        {/* Right Column: Channel Grid - Desktop only */}
+        <main className="hidden lg:flex flex-1 flex-col overflow-hidden">
+          {/* Category Header */}
+          <div className="h-14 flex-shrink-0 bg-slate-900 border-b border-slate-700 flex items-center px-6">
+            <h2 className="text-xl font-bold text-white">{displayCategoryName}</h2>
+            {previewChannels && (
+              <span className="ml-3 text-sm text-slate-400">{previewChannels.length} channels</span>
+            )}
+          </div>
+
+          {/* Channel Grid */}
+          <div className="flex-1 overflow-y-auto p-4">
+            {previewChannels === undefined && (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-slate-400">Hover or select a category</p>
+              </div>
+            )}
+
+            {previewChannels && previewChannels.length === 0 && (
+              <div className="flex items-center justify-center h-full">
+                <p className="text-slate-400">No channels in this category</p>
+              </div>
+            )}
+
+            {previewChannels && previewChannels.length > 0 && (
+              <div className="grid grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
+                {previewChannels.map(channel => (
+                  <ChannelCard
+                    key={channel.id}
+                    channel={channel}
+                    onClick={() => handleChannelClick(channel)}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </main>
       </div>
-
-      {/* Right Column: Channel Grid - Desktop only */}
-      <main className="hidden lg:flex flex-1 flex-col overflow-hidden">
-        {/* Category Header */}
-        <div className="h-14 flex-shrink-0 bg-slate-900 border-b border-slate-700 flex items-center px-6">
-          <h2 className="text-xl font-bold text-white">{displayCategoryName}</h2>
-          {previewChannels && (
-            <span className="ml-3 text-sm text-slate-400">{previewChannels.length} channels</span>
-          )}
-        </div>
-
-        {/* Channel Grid */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {previewChannels === undefined && (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-slate-400">Hover or select a category</p>
-            </div>
-          )}
-
-          {previewChannels && previewChannels.length === 0 && (
-            <div className="flex items-center justify-center h-full">
-              <p className="text-slate-400">No channels in this category</p>
-            </div>
-          )}
-
-          {previewChannels && previewChannels.length > 0 && (
-            <div className="grid grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
-              {previewChannels.map(channel => (
-                <ChannelCard
-                  key={channel.id}
-                  channel={channel}
-                  onClick={() => handleChannelClick(channel)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </main>
     </div>
   )
 }

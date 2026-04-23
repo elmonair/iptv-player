@@ -3,6 +3,7 @@ import { ArrowLeft, Search, MoreVertical } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../lib/db'
+import { TopNavBar } from '../components/TopNavBar'
 
 export default function CategoryChannelList() {
   const { categoryId } = useParams<{ categoryId: string }>()
@@ -40,9 +41,11 @@ export default function CategoryChannelList() {
   }
 
   return (
-    <div className="h-full flex flex-col bg-slate-900">
+    <div className="min-h-screen bg-slate-900">
+      <TopNavBar />
+
       {/* Header */}
-      <header className="h-14 sm:h-16 flex-shrink-0 bg-slate-900 border-b border-slate-700 flex items-center px-2 sm:px-4">
+      <header className="h-14 bg-slate-900 border-b border-slate-700 flex items-center px-2">
         <button
           onClick={() => navigate('/live')}
           className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
@@ -50,7 +53,7 @@ export default function CategoryChannelList() {
         >
           <ArrowLeft size={22} />
         </button>
-        <h1 className="flex-1 text-center text-base sm:text-lg font-medium text-white truncate px-2">
+        <h1 className="flex-1 text-center text-base font-medium text-white truncate px-2">
           {categoryName ?? 'Loading...'}
         </h1>
         <div className="flex items-center gap-1">
@@ -64,7 +67,7 @@ export default function CategoryChannelList() {
       </header>
 
       {/* Channel List */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="overflow-y-auto">
         {channels === undefined && (
           <div className="flex items-center justify-center h-32">
             <p className="text-slate-400">Loading channels...</p>
@@ -87,7 +90,7 @@ export default function CategoryChannelList() {
               <img
                 src={channel.logoUrl}
                 alt={channel.name}
-                className="w-14 h-14 sm:w-16 sm:h-16 rounded object-contain bg-slate-800 flex-shrink-0"
+                className="w-14 h-14 rounded object-contain bg-slate-800 flex-shrink-0"
                 loading="lazy"
                 onError={(e) => {
                   const target = e.target as HTMLImageElement
@@ -98,7 +101,7 @@ export default function CategoryChannelList() {
               />
             ) : null}
             <div
-              className={`w-14 h-14 sm:w-16 sm:h-16 rounded bg-slate-700 flex-shrink-0 items-center justify-center ${
+              className={`w-14 h-14 rounded bg-slate-700 flex-shrink-0 items-center justify-center ${
                 channel.logoUrl ? 'hidden' : 'flex'
               }`}
             >
