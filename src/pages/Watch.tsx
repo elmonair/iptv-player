@@ -27,6 +27,7 @@ export default function Watch() {
   const [categoryChannels, setCategoryChannels] = useState<ChannelRecord[]>([])
   const [categoryName, setCategoryName] = useState<string>('')
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
+  const [currentChanId, setCurrentChanId] = useState<string>('')
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
 
@@ -84,8 +85,9 @@ export default function Watch() {
       return
     }
 
-    console.log('[Watch] Zap to channel:', { name: channel.name, streamId: channel.streamId })
+    console.log('[Watch] Zap to channel:', { name: channel.name, streamId: channel.streamId, id: channel.id })
     setChannelName(channel.name)
+    setCurrentChanId(channel.id)
     setStatus('loading')
     setVideoInfo(null)
 
@@ -366,7 +368,7 @@ export default function Watch() {
             </div>
             <div className="p-2 space-y-1">
               {categoryChannels.map((chan) => {
-                const isActive = chan.id === channelId
+                const isActive = chan.id === currentChanId
                 return (
                   <button
                     key={chan.id}
