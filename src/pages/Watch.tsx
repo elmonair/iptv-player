@@ -17,6 +17,7 @@ export default function Watch() {
   const categoryChannelsRef = useRef<ChannelRecord[]>([])
   const categoryIndexRef = useRef<number>(-1)
   const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const activeChannelRef = useRef<HTMLButtonElement>(null)
 
   const [status, setStatus] = useState<WatchStatus>('loading')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
@@ -267,6 +268,12 @@ export default function Watch() {
   }, [])
 
   useEffect(() => {
+    if (activeChannelRef.current) {
+      activeChannelRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    }
+  }, [channelId])
+
+  useEffect(() => {
     if (!channelId) {
       navigate('/live')
       return
@@ -363,6 +370,7 @@ export default function Watch() {
                 return (
                   <button
                     key={chan.id}
+                    ref={isActive ? activeChannelRef : null}
                     onClick={() => navigate(`/watch/${encodeURIComponent(chan.id)}`)}
                     className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50 min-h-[48px] ${
                       isActive
