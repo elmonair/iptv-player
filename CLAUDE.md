@@ -35,6 +35,77 @@ The project owner has no prior coding experience. AI writes the code. Write clea
 - Mobile responsive by default
 - No hover-only interactions — every hover has a focus equivalent
 
+## Responsive Design (MUST follow for every component)
+
+### Target devices
+- Desktop browsers (1920x1080+)
+- Tablets (768px - 1024px)
+- Mobile phones (320px - 768px)
+- TV browsers (Fire TV Silk, Android TV Bro) — 1920x1080, remote/keyboard navigation
+
+### Breakpoints
+- Mobile: < 768px
+- Tablet: 768px - 1024px
+- Desktop: 1024px - 1920px
+- TV: 1920px+
+
+### Layout rules
+- Use Tailwind responsive prefixes: `sm:` `md:` `lg:` `xl:` `2xl:` — default is mobile-first
+- Channel grids: 1 column mobile, 2 tablet, 3-4 desktop
+- Video player: full-width mobile, max-width desktop
+- Navigation: hamburger on mobile, horizontal on desktop
+
+### Typography rules
+- Minimum font: 16px (text-base) everywhere
+- Channel names: text-lg mobile, text-xl desktop
+- Headings: text-2xl mobile, text-4xl desktop
+- Never below 14px (text-sm) for readable text
+
+### Touch targets & spacing
+- Minimum button/card height: 48px (h-12) on all devices
+- Minimum button width: 120px on mobile
+- Container padding: px-4 mobile, px-8 desktop
+- Grid gaps: gap-2 mobile, gap-4 desktop
+- Minimum 8px spacing between clickable elements
+
+### Video player responsive rules
+- Mobile: full-width, 16:9, controls always visible
+- Tablet: max-width 90vw, centered
+- Desktop: max-width 1280px, centered
+- TV: full-screen, large control buttons (min 64px)
+- Player controls: stack vertical mobile, horizontal desktop/TV
+
+### Images & logos
+- Channel logos: 80x80 mobile, 120x120 desktop
+- Use object-contain to prevent distortion
+- Lazy load: loading="lazy" on all images
+
+### Keyboard/Remote navigation (TV)
+- All interactive elements must have tabIndex
+- Focus rings: ring-4 on TV (larger), ring-2 on desktop/mobile
+- Arrow key navigation for channel grids
+- Escape key to close modals / go back
+
+### Responsive utility
+Use `src/lib/responsive.ts` for device detection:
+```typescript
+import { isMobile, isTV, getDeviceType } from '../lib/responsive'
+```
+
+### Performance on mobile
+- Limit initial channel list to 50 items on mobile (virtualize if more)
+- Use smaller video buffer on mobile
+- Lazy load images
+
+### Testing requirement
+Every component MUST be tested on:
+- Mobile viewport (375px)
+- Tablet viewport (768px)
+- Desktop viewport (1280px)
+- TV viewport (1920px)
+
+No component should be marked as complete until it works correctly on all four viewports.
+
 ## Critical technical constraints (learned the hard way)
 
 ### React Strict Mode is DISABLED in this project
@@ -139,8 +210,8 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - Production proxy on VPS
 
 ### Not yet built
-- Channel quick-zap (remote-style up/down to change channels)
-- Fullscreen toggle on Watch page
+- Channel quick-zap (remote-style up/down to change channels) — COMPLETED
+- Fullscreen toggle on Watch page — COMPLETED
 - Audio track / subtitle selection
 - Movies browsing UI (Step 12)
 - Series browsing UI (Step 12)
