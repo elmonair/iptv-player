@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2 } from 'lucide-react'
+import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight } from 'lucide-react'
 import mpegts from 'mpegts.js'
 import { db } from '../lib/db'
 import { usePlaylistStore } from '../stores/playlistStore'
@@ -14,7 +14,8 @@ export default function Watch() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerRef = useRef<ReturnType<typeof mpegts.createPlayer> | null>(null)
   const allChannelsRef = useRef<ChannelRecord[]>([])
-  const currentIndexRef = useRef<number>(-1)
+  const categoryChannelsRef = useRef<ChannelRecord[]>([])
+  const categoryIndexRef = useRef<number>(-1)
   const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const [status, setStatus] = useState<WatchStatus>('loading')
@@ -89,6 +90,9 @@ export default function Watch() {
 
     const allChannels = allChannelsRef.current
     const categoryChan = allChannels.filter((c) => c.categoryId === channel.categoryId)
+    categoryChannelsRef.current = categoryChan
+    const catIdx = categoryChan.findIndex((c) => c.id === channel.id)
+    categoryIndexRef.current = catIdx >= 0 ? catIdx : 0
     setCategoryChannels(categoryChan)
 
     try {
@@ -197,26 +201,54 @@ export default function Watch() {
     }
   }, [])
 
+  const handlePrevChannel = useCallback(() => {
+    const channels = categoryChannelsRef.current
+    if (channels.length === 0) return
+
+    const nextIndex = categoryIndexRef.current > 0
+      ? categoryIndexRef.current - 1
+      : channels.length - 1
+
+    const nextChannel = channels[nextIndex]
+    categoryIndexRef.current = nextIndex
+    console.log('[Watch] Prev channel:', { nextIndex, channel: nextChannel.name })
+    zapTo(nextChannel.id)
+  }, [zapTo])
+
+  const handleNextChannel = useCallback(() => {
+    const channels = categoryChannelsRef.current
+    if (channels.length === 0) return
+
+    const nextIndex = categoryIndexRef.current < channels.length - 1
+      ? categoryIndexRef.current + 1
+      : 0
+
+    const nextChannel = channels[nextIndex]
+    categoryIndexRef.current = nextIndex
+    console.log('[Watch] Next channel:', { nextIndex, channel: nextChannel.name })
+    zapTo(nextChannel.id)
+  }, [zapTo])
+
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
         e.preventDefault()
-        const channels = allChannelsRef.current
+        const channels = categoryChannelsRef.current
         if (channels.length === 0) return
 
         let nextIndex: number
         if (e.key === 'ArrowUp') {
-          nextIndex = currentIndexRef.current > 0
-            ? currentIndexRef.current - 1
+          nextIndex = categoryIndexRef.current > 0
+            ? categoryIndexRef.current - 1
             : channels.length - 1
         } else {
-          nextIndex = currentIndexRef.current < channels.length - 1
-            ? currentIndexRef.current + 1
+          nextIndex = categoryIndexRef.current < channels.length - 1
+            ? categoryIndexRef.current + 1
             : 0
         }
 
         const nextChannel = channels[nextIndex]
-        currentIndexRef.current = nextIndex
+        categoryIndexRef.current = nextIndex
         console.log('[Watch] Quick-zap:', { direction: e.key, nextIndex, channel: nextChannel.name })
         zapTo(nextChannel.id)
       }
@@ -257,9 +289,6 @@ export default function Watch() {
       const sorted = channels.sort((a, b) => a.name.localeCompare(b.name))
       allChannelsRef.current = sorted
 
-      const idx = sorted.findIndex((c) => c.id === decodeURIComponent(channelId))
-      currentIndexRef.current = idx >= 0 ? idx : 0
-
       await zapTo(channelId)
     }
 
@@ -296,6 +325,20 @@ export default function Watch() {
             aria-label={isSidebarOpen ? 'Hide channel list' : 'Show channel list'}
           >
             {isSidebarOpen ? <Tv2 className="w-5 h-5" /> : <List className="w-5 h-5" />}
+          </button>
+          <button
+            onClick={handlePrevChannel}
+            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50"
+            aria-label="Previous channel"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <button
+            onClick={handleNextChannel}
+            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50"
+            aria-label="Next channel"
+          >
+            <ChevronRight className="w-5 h-5" />
           </button>
           <button
             onClick={handleFullscreenToggle}
@@ -375,8 +418,8 @@ export default function Watch() {
             )}
           </div>
 
-          {status === 'playing' && allChannelsRef.current.length > 1 && (
-            <p className="mt-3 text-slate-500 text-sm">Use ↑ / ↓ arrows to change channels</p>
+          {status === 'playing' && categoryChannels.length > 1 && (
+            <p className="mt-3 text-slate-500 text-sm">Use ↑ / ↓ arrows or the buttons to change channels</p>
           )}
 
           <div className="mt-4 text-center">
