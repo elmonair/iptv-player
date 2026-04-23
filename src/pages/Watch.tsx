@@ -15,11 +15,13 @@ export default function Watch() {
   const playerRef = useRef<ReturnType<typeof mpegts.createPlayer> | null>(null)
   const allChannelsRef = useRef<ChannelRecord[]>([])
   const currentIndexRef = useRef<number>(-1)
+  const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const [status, setStatus] = useState<WatchStatus>('loading')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [channelName, setChannelName] = useState<string>('')
   const [isFullscreen, setIsFullscreen] = useState(false)
+  const [videoInfo, setVideoInfo] = useState<{ width: number; height: number; fps: number } | null>(null)
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
 
@@ -35,6 +37,11 @@ export default function Watch() {
     if (videoRef.current) {
       videoRef.current.src = ''
     }
+    if (statsIntervalRef.current) {
+      clearInterval(statsIntervalRef.current)
+      statsIntervalRef.current = null
+    }
+    setVideoInfo(null)
   }, [])
 
   const handlePlayClick = async () => {
@@ -75,6 +82,7 @@ export default function Watch() {
     console.log('[Watch] Zap to channel:', { name: channel.name, streamId: channel.streamId })
     setChannelName(channel.name)
     setStatus('loading')
+    setVideoInfo(null)
 
     const streamUrl = `${source.serverUrl}/live/${source.username}/${source.password}/${channel.streamId}.ts`
     const safeUrl = streamUrl.replace(source.username, '[USER]').replace(source.password, '[PASS]')
@@ -97,12 +105,51 @@ export default function Watch() {
       console.log('[Watch] mpegts LOADING_COMPLETE')
     })
 
+    // Media info — gives resolution and frame rate
+    player.on(mpegts.Events.MEDIA_INFO, (info: { width?: number; height?: number; frame_rate?: number }) => {
+      console.log('[Watch] mpegts MEDIA_INFO:', info)
+      if (info.width && info.height) {
+        setVideoInfo((prev) => ({
+          width: info.width as number,
+          height: info.height as number,
+          fps: info.frame_rate ?? prev?.fps ?? 0,
+        }))
+      }
+    })
+
+    // Statistics — FPS from mpegts stats
+    player.on(mpegts.Events.STATISTICS_INFO, (info: { speed?: number; fps?: number } | unknown) => {
+      const stats = info as { speed?: number; fps?: number }
+      if (stats && typeof stats.fps === 'number' && stats.fps > 0) {
+        setVideoInfo((prev) => prev ? { ...prev, fps: stats.fps as number } : null)
+      }
+    })
+
     const videoEl = videoRef.current
-    videoEl.oncanplay = () => console.log('[Watch] video canplay event')
+    videoEl.oncanplay = () => {
+      console.log('[Watch] video canplay event')
+      if (videoEl.videoWidth && videoEl.videoHeight) {
+        setVideoInfo((prev) => ({
+          width: videoEl.videoWidth,
+          height: videoEl.videoHeight,
+          fps: prev?.fps ?? 0,
+        }))
+      }
+    }
     videoEl.onplaying = () => {
       console.log('[Watch] video playing event')
       setStatus('playing')
       setLastChannelId(channel!.id)
+
+      // Periodic check for video dimensions in case MEDIA_INFO didn't fire
+      statsIntervalRef.current = setInterval(() => {
+        if (videoEl.videoWidth && videoEl.videoHeight) {
+          setVideoInfo((prev) => {
+            const updated = { width: videoEl.videoWidth, height: videoEl.videoHeight, fps: prev?.fps ?? 0 }
+            return JSON.stringify(prev) !== JSON.stringify(updated) ? updated : prev
+          })
+        }
+      }, 1000)
     }
     videoEl.onstalled = () => console.log('[Watch] video stalled event')
     videoEl.onerror = () => {
@@ -136,7 +183,6 @@ export default function Watch() {
     }
   }, [])
 
-  // Keyboard: ArrowUp/ArrowDown for quick-zap
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
@@ -166,7 +212,6 @@ export default function Watch() {
     return () => window.removeEventListener('keydown', handler)
   }, [zapTo])
 
-  // Track fullscreen state
   useEffect(() => {
     const handler = () => {
       setIsFullscreen(!!document.fullscreenElement)
@@ -175,7 +220,6 @@ export default function Watch() {
     return () => document.removeEventListener('fullscreenchange', handler)
   }, [])
 
-  // Load channel on mount / channelId change
   useEffect(() => {
     if (!channelId) {
       navigate('/live')
@@ -192,7 +236,6 @@ export default function Watch() {
 
       console.log('[Watch] Source found:', source.name)
 
-      // Load all channels for quick-zap
       const channels = await db.channels
         .where('sourceId')
         .equals(source.id)
@@ -200,7 +243,6 @@ export default function Watch() {
       const sorted = channels.sort((a, b) => a.name.localeCompare(b.name))
       allChannelsRef.current = sorted
 
-      // Find current index
       const idx = sorted.findIndex((c) => c.id === decodeURIComponent(channelId))
       currentIndexRef.current = idx >= 0 ? idx : 0
 
@@ -216,7 +258,6 @@ export default function Watch() {
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col">
-      {/* Header */}
       <header className="h-16 flex-shrink-0 flex items-center gap-4 px-4 border-b border-slate-800 bg-slate-900">
         <button
           onClick={() => navigate('/live')}
@@ -227,6 +268,12 @@ export default function Watch() {
         </button>
         <div className="flex-1 flex items-center gap-3 min-w-0">
           <h1 className="text-xl font-semibold text-white truncate">{channelName || 'Loading...'}</h1>
+          {videoInfo && (
+            <span className="text-slate-500 text-sm font-mono flex-shrink-0">
+              {videoInfo.width}x{videoInfo.height}
+              {videoInfo.fps > 0 && ` @ ${videoInfo.fps}fps`}
+            </span>
+          )}
         </div>
         <button
           onClick={handleFullscreenToggle}
@@ -237,7 +284,6 @@ export default function Watch() {
         </button>
       </header>
 
-      {/* Video area */}
       <div className="flex-1 flex flex-col items-center justify-center p-4">
         <div className="relative w-full max-w-6xl">
           <video
@@ -260,12 +306,10 @@ export default function Watch() {
           )}
         </div>
 
-        {/* Zap hint */}
         {status === 'playing' && allChannelsRef.current.length > 1 && (
           <p className="mt-3 text-slate-500 text-sm">Use ↑ / ↓ arrows to change channels</p>
         )}
 
-        {/* Status bar */}
         <div className="mt-4 text-center">
           {status === 'loading' && (
             <div className="flex items-center justify-center gap-2 text-slate-400">
