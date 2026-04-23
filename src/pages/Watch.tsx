@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, Maximize2, Minimize2 } from 'lucide-react'
+import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2 } from 'lucide-react'
 import mpegts from 'mpegts.js'
 import { db } from '../lib/db'
 import { usePlaylistStore } from '../stores/playlistStore'
@@ -22,6 +22,9 @@ export default function Watch() {
   const [channelName, setChannelName] = useState<string>('')
   const [isFullscreen, setIsFullscreen] = useState(false)
   const [videoInfo, setVideoInfo] = useState<{ width: number; height: number; fps: number } | null>(null)
+  const [categoryChannels, setCategoryChannels] = useState<ChannelRecord[]>([])
+  const [categoryName, setCategoryName] = useState<string>('')
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true)
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
 
@@ -83,6 +86,17 @@ export default function Watch() {
     setChannelName(channel.name)
     setStatus('loading')
     setVideoInfo(null)
+
+    const allChannels = allChannelsRef.current
+    const categoryChan = allChannels.filter((c) => c.categoryId === channel.categoryId)
+    setCategoryChannels(categoryChan)
+
+    try {
+      const cat = await db.categories.where('id').equals(channel.categoryId).first()
+      setCategoryName(cat?.name ?? 'Unknown')
+    } catch {
+      setCategoryName('Unknown')
+    }
 
     const streamUrl = `${source.serverUrl}/live/${source.username}/${source.password}/${channel.streamId}.ts`
     const safeUrl = streamUrl.replace(source.username, '[USER]').replace(source.password, '[PASS]')
@@ -275,58 +289,114 @@ export default function Watch() {
             </span>
           )}
         </div>
-        <button
-          onClick={handleFullscreenToggle}
-          className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50"
-          aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
-        >
-          {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50"
+            aria-label={isSidebarOpen ? 'Hide channel list' : 'Show channel list'}
+          >
+            {isSidebarOpen ? <Tv2 className="w-5 h-5" /> : <List className="w-5 h-5" />}
+          </button>
+          <button
+            onClick={handleFullscreenToggle}
+            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50"
+            aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+          >
+            {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+          </button>
+        </div>
       </header>
 
-      <div className="flex-1 flex flex-col items-center justify-center p-4">
-        <div className="relative w-full max-w-6xl">
-          <video
-            ref={videoRef}
-            controls
-            playsInline
-            className="w-full aspect-video bg-black rounded-lg"
-          />
-          {status === 'ready-click-to-play' && (
-            <button
-              onClick={handlePlayClick}
-              className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-lg hover:bg-black/50 transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50"
-            >
-              <div className="w-20 h-20 bg-indigo-600 rounded-full flex items-center justify-center hover:bg-indigo-500 transition-colors">
-                <svg className="w-10 h-10 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M8 5v14l11-7z" />
-                </svg>
+      <div className="flex-1 flex overflow-hidden">
+        <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-auto">
+          <div className="relative w-full max-w-6xl">
+            <video
+              ref={videoRef}
+              controls
+              playsInline
+              className="w-full aspect-video bg-black rounded-lg"
+            />
+            {status === 'ready-click-to-play' && (
+              <button
+                onClick={handlePlayClick}
+                className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-lg hover:bg-black/50 transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50"
+              >
+                <div className="w-20 h-20 bg-indigo-600 rounded-full flex items-center justify-center hover:bg-indigo-500 transition-colors">
+                  <svg className="w-10 h-10 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </div>
+              </button>
+            )}
+          </div>
+
+          {status === 'playing' && allChannelsRef.current.length > 1 && (
+            <p className="mt-3 text-slate-500 text-sm">Use ↑ / ↓ arrows to change channels</p>
+          )}
+
+          <div className="mt-4 text-center">
+            {status === 'loading' && (
+              <div className="flex items-center justify-center gap-2 text-slate-400">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span>Loading channel...</span>
               </div>
-            </button>
-          )}
+            )}
+            {status === 'ready-click-to-play' && (
+              <p className="text-slate-400 text-base">Click play to start</p>
+            )}
+            {status === 'playing' && (
+              <p className="text-green-400 text-base">Playing</p>
+            )}
+            {status === 'error' && (
+              <p className="text-red-400 text-base">{errorMsg}</p>
+            )}
+          </div>
         </div>
 
-        {status === 'playing' && allChannelsRef.current.length > 1 && (
-          <p className="mt-3 text-slate-500 text-sm">Use ↑ / ↓ arrows to change channels</p>
-        )}
-
-        <div className="mt-4 text-center">
-          {status === 'loading' && (
-            <div className="flex items-center justify-center gap-2 text-slate-400">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span>Loading channel...</span>
+        {isSidebarOpen && categoryChannels.length > 0 && (
+          <aside className="w-72 flex-shrink-0 border-l border-slate-800 bg-slate-900/50 overflow-y-auto">
+            <div className="p-4 border-b border-slate-800">
+              <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">{categoryName}</h2>
+              <p className="text-xs text-slate-500 mt-1">{categoryChannels.length} channels</p>
             </div>
-          )}
-          {status === 'ready-click-to-play' && (
-            <p className="text-slate-400 text-base">Click play to start</p>
-          )}
-          {status === 'playing' && (
-            <p className="text-green-400 text-base">Playing</p>
-          )}
-          {status === 'error' && (
-            <p className="text-red-400 text-base">{errorMsg}</p>
-          )}
-        </div>
+            <div className="p-2 space-y-1">
+              {categoryChannels.map((chan) => {
+                const isActive = chan.id === decodeURIComponent(channelId ?? '')
+                return (
+                  <button
+                    key={chan.id}
+                    onClick={() => navigate(`/watch/${encodeURIComponent(chan.id)}`)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50 min-h-[48px] ${
+                      isActive
+                        ? 'bg-indigo-600/20 text-indigo-400'
+                        : 'text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    {chan.logoUrl ? (
+                      <img
+                        src={chan.logoUrl}
+                        alt={chan.name}
+                        className="w-8 h-8 object-contain rounded flex-shrink-0 bg-slate-800"
+                        loading="lazy"
+                        onError={(e) => {
+                          const target = e.target as HTMLImageElement
+                          target.style.display = 'none'
+                          const fallback = target.nextElementSibling as HTMLDivElement
+                          if (fallback) fallback.style.display = 'flex'
+                        }}
+                      />
+                    ) : (
+                      <div className="w-8 h-8 bg-slate-800 rounded flex items-center justify-center text-xs font-semibold text-slate-400 flex-shrink-0">
+                        {chan.name.slice(0, 2).toUpperCase()}
+                      </div>
+                    )}
+                    <span className="flex-1 text-sm font-medium truncate text-left">{chan.name}</span>
+                  </button>
+                )
+              })}
+            </div>
+          </aside>
+        )}
       </div>
     </div>
   )
