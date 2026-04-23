@@ -360,11 +360,11 @@ export default function Watch() {
       </header>
 
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        {/* Video Player Container - fills available space */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Video Player - centered, fills container */}
-          <div className="flex-1 flex items-center justify-center bg-black p-2 sm:p-4 overflow-hidden">
-            <div className="relative w-full h-full max-w-full max-h-full flex items-center justify-center">
+        {/* Video Section */}
+        <div className="flex-1 flex flex-col bg-black min-h-0">
+          {/* Video Player */}
+          <div className="flex-1 flex items-center justify-center p-2 sm:p-4 min-h-0">
+            <div className="relative w-full h-full flex items-center justify-center">
               <video
                 ref={videoRef}
                 controls
@@ -386,7 +386,7 @@ export default function Watch() {
             </div>
           </div>
 
-          {/* Status Bar - below video */}
+          {/* Status Bar */}
           <div className="flex-shrink-0 px-4 py-2 flex items-center justify-between">
             <div>
               {status === 'loading' && (
@@ -411,49 +411,51 @@ export default function Watch() {
           </div>
         </div>
 
-        {/* Channel List - Mobile: below video, Desktop: beside video */}
+        {/* Channel List - Desktop: beside video (w-72), Mobile: below video */}
         {isSidebarOpen && categoryChannels.length > 0 && (
-          <aside className="w-full lg:w-72 xl:w-80 flex-shrink-0 border-t lg:border-t-0 lg:border-r border-slate-800 bg-slate-900/50 overflow-y-auto">
-            <div className="p-3 border-b border-slate-800 sticky top-0 bg-slate-900">
+          <aside className="w-full lg:w-72 xl:w-80 flex-shrink-0 bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-700 overflow-y-auto">
+            <div className="p-3 border-b border-slate-700 sticky top-0 bg-slate-900 z-10">
               <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide truncate">{categoryName}</h2>
               <p className="text-xs text-slate-500 mt-0.5">{categoryChannels.length} channels</p>
             </div>
-            <div className="p-2 flex lg:flex-col flex-row lg:overflow-y-auto overflow-x-auto gap-1 lg:gap-0">
-              {categoryChannels.map((chan) => {
-                const isActive = chan.id === currentChanId
-                return (
-                  <button
-                    key={chan.id}
-                    ref={isActive ? activeChannelRef : null}
-                    onClick={() => navigate(`/watch/${encodeURIComponent(chan.id)}`)}
-                    className={`flex-shrink-0 lg:flex-shrink flex items-center gap-2 lg:gap-3 px-3 lg:px-4 py-2.5 lg:py-3 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[48px] lg:min-h-[56px] w-full lg:w-auto ${
-                      isActive
-                        ? 'bg-indigo-600/20 text-indigo-400 border-l-2 lg:border-l-4 border-indigo-500'
-                        : 'text-slate-300 hover:bg-slate-800'
-                    }`}
-                  >
-                    {chan.logoUrl ? (
-                      <img
-                        src={chan.logoUrl}
-                        alt={chan.name}
-                        className="w-8 h-8 lg:w-10 lg:h-10 object-contain rounded flex-shrink-0 bg-slate-800"
-                        loading="lazy"
-                        onError={(e) => {
-                          const target = e.target as HTMLImageElement
-                          target.style.display = 'none'
-                          const fallback = target.nextElementSibling as HTMLDivElement
-                          if (fallback) fallback.style.display = 'flex'
-                        }}
-                      />
-                    ) : (
-                      <div className="w-8 h-8 lg:w-10 lg:h-10 bg-slate-800 rounded flex items-center justify-center text-sm font-semibold text-slate-400 flex-shrink-0">
-                        {chan.name.slice(0, 2).toUpperCase()}
-                      </div>
-                    )}
-                    <span className="flex-1 lg:flex-none text-sm font-medium truncate text-left">{chan.name}</span>
-                  </button>
-                )
-              })}
+            <div className="p-2">
+              <div className="flex flex-col gap-1">
+                {categoryChannels.map((chan) => {
+                  const isActive = chan.id === currentChanId
+                  return (
+                    <button
+                      key={chan.id}
+                      ref={isActive ? activeChannelRef : null}
+                      onClick={() => navigate(`/watch/${encodeURIComponent(chan.id)}`)}
+                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[48px] w-full ${
+                        isActive
+                          ? 'bg-indigo-600/20 text-indigo-400 border-l-4 border-indigo-500'
+                          : 'text-slate-300 hover:bg-slate-800'
+                      }`}
+                    >
+                      {chan.logoUrl ? (
+                        <img
+                          src={chan.logoUrl}
+                          alt={chan.name}
+                          className="w-10 h-10 object-contain rounded bg-slate-800 flex-shrink-0"
+                          loading="lazy"
+                          onError={(e) => {
+                            const target = e.target as HTMLImageElement
+                            target.style.display = 'none'
+                            const fallback = target.nextElementSibling as HTMLDivElement
+                            if (fallback) fallback.style.display = 'flex'
+                          }}
+                        />
+                      ) : (
+                        <div className="w-10 h-10 bg-slate-800 rounded flex items-center justify-center text-sm font-semibold text-slate-400 flex-shrink-0">
+                          {chan.name.slice(0, 2).toUpperCase()}
+                        </div>
+                      )}
+                      <span className="flex-1 text-sm font-medium truncate text-left">{chan.name}</span>
+                    </button>
+                  )
+                })}
+              </div>
             </div>
           </aside>
         )}
