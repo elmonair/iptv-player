@@ -422,7 +422,7 @@ export default function Watch() {
               <p className="text-xs text-slate-500 mt-0.5">{categoryChannels.length} channels</p>
             </div>
             {/* Channel List - scrollable with visible scrollbar */}
-            <div className="flex-1 overflow-y-scroll">
+            <div className="flex-1 min-h-0 overflow-y-scroll">
               <div className="flex flex-col gap-1 p-2">
                 {categoryChannels.map((chan) => {
                   const isActive = chan.id === currentChanId
