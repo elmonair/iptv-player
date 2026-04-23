@@ -30,11 +30,13 @@ interface PlaylistStore {
   sources: PlaylistSource[]
   activeSourceId: string | null
   loaded: boolean
+  lastChannelId: string | null
 
   loadSourcesFromDb: () => Promise<void>
   addSource: (source: M3UUrlSourceInput | XtreamSourceInput) => Promise<string>
   removeSource: (id: string) => Promise<void>
   setActiveSource: (id: string) => void
+  setLastChannelId: (id: string | null) => void
   getActiveSource: () => PlaylistSource | undefined
   clearAllData: () => Promise<void>
 }
@@ -43,6 +45,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
   sources: [],
   activeSourceId: null,
   loaded: false,
+  lastChannelId: null,
 
   loadSourcesFromDb: async () => {
     const records = await db.sources.toArray()
@@ -128,6 +131,10 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
 
   setActiveSource: (id) => {
     set({ activeSourceId: id })
+  },
+
+  setLastChannelId: (id) => {
+    set({ lastChannelId: id })
   },
 
   getActiveSource: () => {

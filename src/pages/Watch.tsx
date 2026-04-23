@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2 } from 'lucide-react'
+import { ArrowLeft, Loader2, Maximize2, Minimize2 } from 'lucide-react'
 import mpegts from 'mpegts.js'
 import { db } from '../lib/db'
 import { usePlaylistStore } from '../stores/playlistStore'
+import type { ChannelRecord } from '../lib/db'
 
 type WatchStatus = 'loading' | 'ready-click-to-play' | 'playing' | 'error'
 
@@ -12,10 +13,29 @@ export default function Watch() {
   const navigate = useNavigate()
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerRef = useRef<ReturnType<typeof mpegts.createPlayer> | null>(null)
+  const allChannelsRef = useRef<ChannelRecord[]>([])
+  const currentIndexRef = useRef<number>(-1)
 
   const [status, setStatus] = useState<WatchStatus>('loading')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [channelName, setChannelName] = useState<string>('')
+  const [isFullscreen, setIsFullscreen] = useState(false)
+
+  const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
+
+  const destroyPlayer = useCallback(() => {
+    const player = playerRef.current
+    if (player) {
+      try { player.pause() } catch { /* ignore */ }
+      try { player.unload() } catch { /* ignore */ }
+      try { player.detachMediaElement() } catch { /* ignore */ }
+      try { player.destroy() } catch { /* ignore */ }
+      playerRef.current = null
+    }
+    if (videoRef.current) {
+      videoRef.current.src = ''
+    }
+  }, [])
 
   const handlePlayClick = async () => {
     if (!videoRef.current) return
@@ -29,144 +49,170 @@ export default function Watch() {
     }
   }
 
+  const zapTo = useCallback(async (targetChannelId: string) => {
+    if (!targetChannelId || !videoRef.current) return
+
+    const source = usePlaylistStore.getState().getActiveSource()
+    if (!source || source.type !== 'xtream') return
+
+    destroyPlayer()
+
+    let channel: ChannelRecord | undefined
+    try {
+      channel = await db.channels.where('id').equals(decodeURIComponent(targetChannelId)).first()
+    } catch {
+      setStatus('error')
+      setErrorMsg('Failed to load channel')
+      return
+    }
+
+    if (!channel) {
+      setStatus('error')
+      setErrorMsg('Channel not found')
+      return
+    }
+
+    console.log('[Watch] Zap to channel:', { name: channel.name, streamId: channel.streamId })
+    setChannelName(channel.name)
+    setStatus('loading')
+
+    const streamUrl = `${source.serverUrl}/live/${source.username}/${source.password}/${channel.streamId}.ts`
+    const safeUrl = streamUrl.replace(source.username, '[USER]').replace(source.password, '[PASS]')
+    console.log('[Watch] Stream URL:', safeUrl)
+
+    const player = mpegts.createPlayer({
+      type: 'mpegts',
+      url: streamUrl,
+      isLive: true,
+    })
+    playerRef.current = player
+
+    player.on(mpegts.Events.ERROR, (_type: string, _detail: string, info: { message?: string }) => {
+      console.error('[Watch] mpegts ERROR:', _type, _detail, info)
+      setStatus('error')
+      setErrorMsg(info?.message ?? 'Player error occurred')
+    })
+
+    player.on(mpegts.Events.LOADING_COMPLETE, () => {
+      console.log('[Watch] mpegts LOADING_COMPLETE')
+    })
+
+    const videoEl = videoRef.current
+    videoEl.oncanplay = () => console.log('[Watch] video canplay event')
+    videoEl.onplaying = () => {
+      console.log('[Watch] video playing event')
+      setStatus('playing')
+      setLastChannelId(channel!.id)
+    }
+    videoEl.onstalled = () => console.log('[Watch] video stalled event')
+    videoEl.onerror = () => {
+      console.error('[Watch] video error:', videoEl.error)
+      setStatus('error')
+      setErrorMsg('Video element error')
+    }
+
+    player.attachMediaElement(videoEl)
+    player.load()
+
+    try {
+      await videoEl.play()
+      setStatus('playing')
+      setLastChannelId(channel.id)
+    } catch (err) {
+      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
+        setStatus('ready-click-to-play')
+      } else {
+        setStatus('error')
+        setErrorMsg(err instanceof Error ? err.message : String(err))
+      }
+    }
+  }, [destroyPlayer, setLastChannelId])
+
+  const handleFullscreenToggle = useCallback(() => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {})
+    } else {
+      document.exitFullscreen().catch(() => {})
+    }
+  }, [])
+
+  // Keyboard: ArrowUp/ArrowDown for quick-zap
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        e.preventDefault()
+        const channels = allChannelsRef.current
+        if (channels.length === 0) return
+
+        let nextIndex: number
+        if (e.key === 'ArrowUp') {
+          nextIndex = currentIndexRef.current > 0
+            ? currentIndexRef.current - 1
+            : channels.length - 1
+        } else {
+          nextIndex = currentIndexRef.current < channels.length - 1
+            ? currentIndexRef.current + 1
+            : 0
+        }
+
+        const nextChannel = channels[nextIndex]
+        currentIndexRef.current = nextIndex
+        console.log('[Watch] Quick-zap:', { direction: e.key, nextIndex, channel: nextChannel.name })
+        zapTo(nextChannel.id)
+      }
+    }
+
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [zapTo])
+
+  // Track fullscreen state
+  useEffect(() => {
+    const handler = () => {
+      setIsFullscreen(!!document.fullscreenElement)
+    }
+    document.addEventListener('fullscreenchange', handler)
+    return () => document.removeEventListener('fullscreenchange', handler)
+  }, [])
+
+  // Load channel on mount / channelId change
   useEffect(() => {
     if (!channelId) {
       navigate('/live')
       return
     }
 
-    let cancelled = false
-
     const init = async () => {
       const source = usePlaylistStore.getState().getActiveSource()
       if (!source || source.type !== 'xtream') {
-        console.log('[Watch] No active Xtream source, redirecting to home')
+        console.log('[Watch] No active Xtream source, redirecting')
         navigate('/home')
         return
       }
 
       console.log('[Watch] Source found:', source.name)
 
-      let channel
-      try {
-        channel = await db.channels.where('id').equals(decodeURIComponent(channelId)).first()
-      } catch (err) {
-        console.error('[Watch] Failed to query channel:', err)
-        setStatus('error')
-        setErrorMsg('Channel not found in database')
-        return
-      }
+      // Load all channels for quick-zap
+      const channels = await db.channels
+        .where('sourceId')
+        .equals(source.id)
+        .toArray()
+      const sorted = channels.sort((a, b) => a.name.localeCompare(b.name))
+      allChannelsRef.current = sorted
 
-      if (cancelled) return
+      // Find current index
+      const idx = sorted.findIndex((c) => c.id === decodeURIComponent(channelId))
+      currentIndexRef.current = idx >= 0 ? idx : 0
 
-      if (!channel) {
-        console.log('[Watch] Channel not found for id:', channelId)
-        setStatus('error')
-        setErrorMsg('Channel not found')
-        return
-      }
-
-      console.log('[Watch] Channel loaded:', { name: channel.name, streamId: channel.streamId })
-      setChannelName(channel.name)
-
-      const streamUrl = `${source.serverUrl}/live/${source.username}/${source.password}/${channel.streamId}.ts`
-      const safeUrl = streamUrl.replace(source.username, '[USER]').replace(source.password, '[PASS]')
-      console.log('[Watch] Stream URL:', safeUrl)
-
-      console.log('[Watch] mpegts.js feature check:', mpegts.getFeatureList())
-      if (!mpegts.getFeatureList().mseLivePlayback) {
-        setStatus('error')
-        setErrorMsg('Browser does not support MSE live playback')
-        return
-      }
-
-      if (cancelled) return
-
-      const player = mpegts.createPlayer({
-        type: 'mpegts',
-        url: streamUrl,
-        isLive: true,
-      })
-      playerRef.current = player
-
-      const videoEl = videoRef.current
-      if (!videoEl || cancelled) {
-        player.destroy()
-        return
-      }
-
-      player.attachMediaElement(videoEl)
-
-      player.on(mpegts.Events.ERROR, (_type: string, _detail: string, info: { message?: string }) => {
-        console.error('[Watch] mpegts ERROR:', _type, _detail, info)
-        if (!cancelled) {
-          setStatus('error')
-          setErrorMsg(info?.message ?? 'Player error occurred')
-        }
-      })
-
-      player.on(mpegts.Events.LOADING_COMPLETE, () => {
-        console.log('[Watch] mpegts LOADING_COMPLETE')
-      })
-
-      videoEl.oncanplay = () => console.log('[Watch] video canplay event')
-      videoEl.onplaying = () => {
-        console.log('[Watch] video playing event')
-        if (!cancelled) setStatus('playing')
-      }
-      videoEl.onstalled = () => console.log('[Watch] video stalled event')
-      videoEl.onerror = () => {
-        console.error('[Watch] video error:', videoEl.error)
-        if (!cancelled) {
-          setStatus('error')
-          setErrorMsg('Video element error')
-        }
-      }
-
-      console.log('[Watch] Player created, calling load')
-      player.load()
-
-      if (cancelled) return
-
-      try {
-        await videoEl.play()
-        console.log('[Watch] Auto-play succeeded immediately')
-        setStatus('playing')
-      } catch (err) {
-        if (cancelled) return
-        const isBlocked = err instanceof Error && (
-          err.name === 'AbortError' ||
-          err.name === 'NotAllowedError' ||
-          err.name === 'NotAllowedError: Failed to execute \'play\' on \'HTMLMediaElement\''
-        )
-        if (isBlocked) {
-          console.log('[Watch] Auto-play blocked by browser, showing click-to-play overlay')
-          setStatus('ready-click-to-play')
-        } else {
-          console.error('[Watch] Auto-play failed with unexpected error:', err)
-          setStatus('error')
-          setErrorMsg(err instanceof Error ? err.message : String(err))
-        }
-      }
+      await zapTo(channelId)
     }
 
     init()
 
     return () => {
-      cancelled = true
-      const player = playerRef.current
-      if (player) {
-        try { player.pause() } catch { /* ignore */ }
-        try { player.unload() } catch { /* ignore */ }
-        try { player.detachMediaElement() } catch { /* ignore */ }
-        try { player.destroy() } catch { /* ignore */ }
-        playerRef.current = null
-      }
-      if (videoRef.current) {
-        videoRef.current.src = ''
-      }
+      destroyPlayer()
     }
-  }, [channelId, navigate])
+  }, [channelId, navigate, zapTo, destroyPlayer])
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col">
@@ -182,6 +228,13 @@ export default function Watch() {
         <div className="flex-1 flex items-center gap-3 min-w-0">
           <h1 className="text-xl font-semibold text-white truncate">{channelName || 'Loading...'}</h1>
         </div>
+        <button
+          onClick={handleFullscreenToggle}
+          className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50"
+          aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
+        >
+          {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+        </button>
       </header>
 
       {/* Video area */}
@@ -207,8 +260,13 @@ export default function Watch() {
           )}
         </div>
 
+        {/* Zap hint */}
+        {status === 'playing' && allChannelsRef.current.length > 1 && (
+          <p className="mt-3 text-slate-500 text-sm">Use ↑ / ↓ arrows to change channels</p>
+        )}
+
         {/* Status bar */}
-        <div className="mt-6 text-center">
+        <div className="mt-4 text-center">
           {status === 'loading' && (
             <div className="flex items-center justify-center gap-2 text-slate-400">
               <Loader2 className="w-5 h-5 animate-spin" />
