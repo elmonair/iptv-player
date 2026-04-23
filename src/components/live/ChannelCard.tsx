@@ -4,9 +4,10 @@ import type { ChannelRecord } from '../../lib/db'
 type Props = {
   channel: ChannelRecord
   onClick: (channel: ChannelRecord) => void
+  cardWidth?: number
 }
 
-export default function ChannelCard({ channel, onClick }: Props) {
+export default function ChannelCard({ channel, onClick, cardWidth = 180 }: Props) {
   const [imageError, setImageError] = useState(false)
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -17,6 +18,8 @@ export default function ChannelCard({ channel, onClick }: Props) {
   }
 
   const initial = channel.name.trim().charAt(0).toUpperCase()
+  const logoSize = cardWidth < 180 ? 'w-10 h-10' : 'w-14 h-14'
+  const fontSize = cardWidth < 180 ? 'text-lg' : 'text-xl'
 
   return (
     <button
@@ -24,10 +27,11 @@ export default function ChannelCard({ channel, onClick }: Props) {
       tabIndex={0}
       onClick={() => onClick(channel)}
       onKeyDown={handleKeyDown}
-      className="group w-full bg-slate-900 rounded-lg border border-slate-800 hover:border-indigo-500 transition-all duration-150 hover:scale-105 focus:outline-none focus:ring-4 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-950 active:scale-100 text-left"
+      className="group w-full bg-slate-900 rounded-lg border border-slate-800 hover:border-indigo-500 transition-all duration-150 hover:scale-105 focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50 focus:ring-offset-2 focus:ring-offset-slate-950 active:scale-100 text-left"
+      style={{ minHeight: '80px' }}
     >
       {/* Logo area */}
-      <div className="h-24 bg-slate-950 flex items-center justify-center p-3 rounded-t-lg">
+      <div className="h-20 sm:h-24 bg-slate-950 flex items-center justify-center p-3 rounded-t-lg">
         {!imageError && channel.logoUrl ? (
           <img
             src={channel.logoUrl}
@@ -37,15 +41,15 @@ export default function ChannelCard({ channel, onClick }: Props) {
             className="max-h-full max-w-full object-contain"
           />
         ) : (
-          <div className="w-12 h-12 rounded-full bg-slate-700 flex items-center justify-center">
-            <span className="text-white text-xl font-bold">{initial}</span>
+          <div className={`${logoSize} rounded-full bg-slate-700 flex items-center justify-center`}>
+            <span className={`text-white ${fontSize} font-bold`}>{initial}</span>
           </div>
         )}
       </div>
 
       {/* Name area */}
-      <div className="p-2">
-        <p className="text-white text-sm font-medium leading-tight line-clamp-2" title={channel.name}>
+      <div className="p-2 sm:p-3">
+        <p className="text-white text-sm sm:text-base font-medium leading-tight line-clamp-2" title={channel.name}>
           {channel.name}
         </p>
       </div>

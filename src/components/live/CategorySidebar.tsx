@@ -70,8 +70,8 @@ export default function CategorySidebar({ selectedCategoryId, onSelectCategory, 
 
   if (categories === undefined) {
     return (
-      <div className="w-72 bg-slate-900 border-r border-slate-800 flex flex-col">
-        <div className="p-4 border-b border-slate-800">
+      <div className="w-64 sm:w-72 bg-slate-900 border-r border-slate-800 flex flex-col">
+        <div className="p-3 sm:p-4 border-b border-slate-800">
           <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Categories</h2>
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -84,9 +84,9 @@ export default function CategorySidebar({ selectedCategoryId, onSelectCategory, 
   const allItems = [{ id: null, name: 'All Channels', count: totalCount }, ...(categories ?? []).map(c => ({ id: c.id, name: c.name, count: channelCounts?.get(c.id) ?? 0 }))]
 
   return (
-    <div className="w-72 bg-slate-900 border-r border-slate-800 flex flex-col flex-shrink-0">
-      <div className="p-4 border-b border-slate-800">
-        <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Categories</h2>
+    <div className="w-64 sm:w-72 bg-slate-900 border-r border-slate-800 flex flex-col flex-shrink-0">
+      <div className="p-3 sm:p-4 border-b border-slate-800">
+        <h2 className="text-xs sm:text-sm font-semibold text-slate-400 uppercase tracking-wide">Categories</h2>
       </div>
 
       <nav className="flex-1 overflow-y-auto py-2" aria-label="Channel categories">
@@ -103,7 +103,7 @@ export default function CategorySidebar({ selectedCategoryId, onSelectCategory, 
                 onClick={() => onSelectCategory(item.id)}
                 onKeyDown={(e) => handleKeyDown(e, item.id, index)}
                 className={`
-                  w-full flex items-center justify-between px-4 py-3 min-h-[56px] text-left transition-colors
+                  w-full flex items-center justify-between px-3 sm:px-4 py-3 min-h-[48px] sm:min-h-[56px] text-left transition-colors
                   focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-inset
                   ${isSelected
                     ? 'bg-indigo-600 text-white'

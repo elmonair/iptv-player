@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
 import CategorySidebar from '../components/live/CategorySidebar'
 import ChannelGrid from '../components/live/ChannelGrid'
@@ -12,12 +12,12 @@ export default function LiveTV() {
   const activeSource = getActiveSource()
   const selectedCategoryId = usePlaylistStore((state) => state.selectedCategoryId)
   const setSelectedCategoryId = usePlaylistStore((state) => state.setSelectedCategoryId)
-  const [sidebarVisible, setSidebarVisible] = useState(true)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   if (!activeSource) {
     return (
       <div className="flex items-center justify-center h-full">
-        <p className="text-slate-400">No playlist active. Add one from settings.</p>
+        <p className="text-slate-400 text-base">No playlist active. Add one from settings.</p>
       </div>
     )
   }
@@ -28,28 +28,65 @@ export default function LiveTV() {
   }
 
   return (
-    <div className="flex flex-1 h-full overflow-hidden">
-      <div className="flex h-full">
-        {sidebarVisible && (
-          <CategorySidebar
-            selectedCategoryId={selectedCategoryId}
-            onSelectCategory={setSelectedCategoryId}
-            sourceId={activeSource.id}
-          />
-        )}
+    <div className="flex flex-1 h-full overflow-hidden relative">
+      {/* Mobile sidebar overlay */}
+      {sidebarOpen && (
+        <div
+          className="md:hidden fixed inset-0 bg-black/50 z-30"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
 
+      {/* Category sidebar - Mobile drawer, Desktop collapsible */}
+      <div
+        className={`
+          fixed md:static inset-y-0 left-0 z-40
+          w-72 flex-shrink-0 bg-slate-900 border-r border-slate-800
+          transform transition-transform duration-200 ease-in-out
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:relative'}
+        `}
+      >
+        {/* Mobile close button */}
         <button
-          onClick={() => setSidebarVisible((v) => !v)}
-          className="w-8 h-full flex-shrink-0 bg-slate-900 border-r border-slate-800 flex items-center justify-center hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-          aria-label={sidebarVisible ? 'Hide categories' : 'Show categories'}
+          onClick={() => setSidebarOpen(false)}
+          className="md:hidden absolute top-4 right-4 w-10 h-10 flex items-center justify-center rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 z-50"
+          aria-label="Close sidebar"
         >
-          {sidebarVisible ? (
-            <ChevronLeft className="w-4 h-4 text-slate-500" />
-          ) : (
-            <ChevronRight className="w-4 h-4 text-slate-500" />
-          )}
+          <X className="w-5 h-5" />
         </button>
+        <CategorySidebar
+          selectedCategoryId={selectedCategoryId}
+          onSelectCategory={(id) => {
+            setSelectedCategoryId(id)
+            setSidebarOpen(false)
+          }}
+          sourceId={activeSource.id}
+        />
       </div>
+
+      {/* Desktop toggle button */}
+      <button
+        onClick={() => setSidebarOpen((v) => !v)}
+        className="hidden md:flex w-6 h-full flex-shrink-0 bg-slate-900 border-r border-slate-800 items-center justify-center hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+        aria-label={sidebarOpen ? 'Hide categories' : 'Show categories'}
+      >
+        {sidebarOpen ? (
+          <ChevronLeft className="w-4 h-4 text-slate-500" />
+        ) : (
+          <ChevronRight className="w-4 h-4 text-slate-500" />
+        )}
+      </button>
+
+      {/* Mobile category toggle button */}
+      <button
+        onClick={() => setSidebarOpen(true)}
+        className="md:hidden fixed bottom-6 left-4 w-12 h-12 bg-indigo-600 hover:bg-indigo-500 rounded-full shadow-lg flex items-center justify-center text-white transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50 z-20"
+        aria-label="Show categories"
+      >
+        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+        </svg>
+      </button>
 
       <div className="flex-1 h-full overflow-hidden">
         <ChannelGrid

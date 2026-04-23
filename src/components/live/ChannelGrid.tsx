@@ -11,19 +11,35 @@ type Props = {
   onChannelClick: (channel: ChannelRecord) => void
 }
 
-const CARD_WIDTH = 180
 const CARD_HEIGHT = 160
 const GAP = 16
+
+function getColumnsForWidth(width: number): number {
+  if (width < 640) return 1      // mobile
+  if (width < 768) return 2      // small tablet
+  if (width < 1024) return 3     // tablet
+  if (width < 1280) return 4     // desktop
+  if (width < 1536) return 4     // large desktop
+  return 5                        // TV
+}
+
+function getCardWidth(containerWidth: number, columns: number): number {
+  const availableWidth = containerWidth - (GAP * (columns - 1))
+  return Math.floor(availableWidth / columns)
+}
 
 export default function ChannelGrid({ sourceId, selectedCategoryId, onChannelClick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(800)
+  const [columns, setColumns] = useState(3)
 
   useEffect(() => {
     if (!containerRef.current) return
     const observer = new ResizeObserver((entries) => {
       for (const entry of entries) {
-        setContainerWidth(entry.contentRect.width)
+        const width = entry.contentRect.width
+        setContainerWidth(width)
+        setColumns(getColumnsForWidth(width))
       }
     })
     observer.observe(containerRef.current)
@@ -44,10 +60,10 @@ export default function ChannelGrid({ sourceId, selectedCategoryId, onChannelCli
     [sourceId, selectedCategoryId],
   )
 
-  const columnsCount = Math.max(1, Math.floor((containerWidth + GAP) / (CARD_WIDTH + GAP)))
+  const cardWidth = Math.max(140, getCardWidth(containerWidth, columns))
   const rowHeight = CARD_HEIGHT + GAP
 
-  const rowCount = channels ? Math.ceil(channels.length / columnsCount) : 0
+  const rowCount = channels ? Math.ceil(channels.length / columns) : 0
 
   const virtualizer = useVirtualizer({
     count: rowCount,
@@ -61,7 +77,7 @@ export default function ChannelGrid({ sourceId, selectedCategoryId, onChannelCli
   if (channels === undefined) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-slate-400">Loading channels...</p>
+        <p className="text-slate-400 text-base">Loading channels...</p>
       </div>
     )
   }
@@ -69,7 +85,7 @@ export default function ChannelGrid({ sourceId, selectedCategoryId, onChannelCli
   if (channels.length === 0) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <p className="text-slate-400">
+        <p className="text-slate-400 text-base">
           {selectedCategoryId ? 'No channels in this category' : 'No channels in your catalog'}
         </p>
       </div>
@@ -77,11 +93,11 @@ export default function ChannelGrid({ sourceId, selectedCategoryId, onChannelCli
   }
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto p-4">
+    <div ref={containerRef} className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6">
       <div style={{ height: totalHeight, position: 'relative' }}>
         {virtualizer.getVirtualItems().map((virtualRow) => {
-          const rowStartIndex = virtualRow.index * columnsCount
-          const rowChannels = channels.slice(rowStartIndex, rowStartIndex + columnsCount)
+          const rowStartIndex = virtualRow.index * columns
+          const rowChannels = channels.slice(rowStartIndex, rowStartIndex + columns)
 
           return (
             <div
@@ -94,11 +110,11 @@ export default function ChannelGrid({ sourceId, selectedCategoryId, onChannelCli
                 height: `${virtualRow.size}px`,
                 transform: `translateY(${virtualRow.start}px)`,
               }}
-              className="flex gap-4"
+              className="flex gap-3 sm:gap-4"
             >
               {rowChannels.map((channel) => (
-                <div key={channel.id} style={{ width: CARD_WIDTH, flexShrink: 0 }}>
-                  <ChannelCard channel={channel} onClick={onChannelClick} />
+                <div key={channel.id} style={{ width: cardWidth, flexShrink: 0 }}>
+                  <ChannelCard channel={channel} onClick={onChannelClick} cardWidth={cardWidth} />
                 </div>
               ))}
             </div>
