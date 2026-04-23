@@ -2,9 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Custom scrollbar for channel list */
-.channel-list-scroll::-webkit-scrollbar {
-  width: 6px;
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.animate-spin {
+  animation: spin 1s linear infinite;
+}
+
+/* Channel list scrollbar - always visible */
+.overflow-y-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.overflow-y-scroll::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+.overflow-y-scroll::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+.overflow-y-scroll::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
 }
 
 .channel-list-scroll::-webkit-scrollbar-track {
