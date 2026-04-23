@@ -3,12 +3,12 @@ import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-ro
 import Onboarding from './pages/Onboarding'
 import Loading from './pages/Loading'
 import Home from './pages/Home'
-import LiveTV from './pages/LiveTV'
+import ChannelCategories from './pages/ChannelCategories'
+import CategoryChannelList from './pages/CategoryChannelList'
 import Movies from './pages/Movies'
 import Series from './pages/Series'
 import TestPlayer from './pages/TestPlayer'
 import Watch from './pages/Watch'
-import AppLayout from './components/AppLayout'
 import { usePlaylistStore } from './stores/playlistStore'
 
 function AppContent() {
@@ -30,7 +30,7 @@ function AppContent() {
           }
         } else {
           if (pathname === '/') {
-            navigate('/home', { replace: true })
+            navigate('/live', { replace: true })
           }
         }
         initialRouteHandled.current = true
@@ -53,12 +53,11 @@ function AppContent() {
     <Routes>
       <Route path="/" element={<Onboarding />} />
       <Route path="/loading" element={<Loading />} />
-      <Route element={<AppLayout />}>
-        <Route path="/home" element={<Home />} />
-        <Route path="/live" element={<LiveTV />} />
-        <Route path="/movies" element={<Movies />} />
-        <Route path="/series" element={<Series />} />
-      </Route>
+      <Route path="/home" element={<Home />} />
+      <Route path="/live" element={<ChannelCategories />} />
+      <Route path="/live/:categoryId" element={<CategoryChannelList />} />
+      <Route path="/movies" element={<Movies />} />
+      <Route path="/series" element={<Series />} />
       <Route path="/watch/:channelId" element={<Watch />} />
       <Route path="/test-player" element={<TestPlayer />} />
     </Routes>
