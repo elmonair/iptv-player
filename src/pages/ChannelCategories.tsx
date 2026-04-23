@@ -95,10 +95,10 @@ export default function ChannelCategories() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-900">
+    <div className="h-screen bg-slate-900 flex flex-col overflow-hidden">
       <TopNavBar />
 
-      <div className="flex flex-col lg:flex-row">
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
         {/* Left Column: Categories */}
         <div className={`flex-shrink-0 bg-slate-900 flex flex-col ${isDesktop ? 'w-[400px] border-r border-slate-700' : 'w-full'}`}>
           {/* Playlist Info */}
