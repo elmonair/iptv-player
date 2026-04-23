@@ -271,7 +271,7 @@ export default function Watch() {
   }, [channelId, navigate, zapTo, destroyPlayer])
 
   return (
-    <div className="min-h-screen bg-slate-950 flex flex-col">
+    <div className="h-screen bg-slate-950 flex flex-col overflow-hidden">
       <header className="h-16 flex-shrink-0 flex items-center gap-4 px-4 border-b border-slate-800 bg-slate-900">
         <button
           onClick={() => navigate('/live')}
