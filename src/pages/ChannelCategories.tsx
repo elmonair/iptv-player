@@ -13,7 +13,6 @@ export default function ChannelCategories() {
   const navigate = useNavigate()
   const [selectedTab, setSelectedTab] = useState<Tab>('channels')
   const [playlistExpanded, setPlaylistExpanded] = useState(false)
-  const [hoveredCategoryId, setHoveredCategoryId] = useState<string | null>(null)
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
   const [isDesktop, setIsDesktop] = useState(false)
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
@@ -52,27 +51,25 @@ export default function ChannelCategories() {
   const previewChannels = useLiveQuery(
     async () => {
       if (!activeSource) return []
-      const catId = hoveredCategoryId ?? selectedCategoryId
       let query
-      if (catId) {
-        query = db.channels.where('categoryId').equals(catId).toArray()
+      if (selectedCategoryId) {
+        query = db.channels.where('categoryId').equals(selectedCategoryId).toArray()
       } else {
         query = db.channels.where('sourceId').equals(activeSource.id).toArray()
       }
       const result = await query
       return result.sort((a, b) => a.name.localeCompare(b.name))
     },
-    [activeSource, hoveredCategoryId, selectedCategoryId],
+    [activeSource, selectedCategoryId],
   )
 
   const totalCount = channelCounts
     ? Array.from(channelCounts.values()).reduce((a, b) => a + b, 0)
     : 0
 
-  const displayCategoryId = selectedCategoryId ?? hoveredCategoryId
-  const displayCategoryName = displayCategoryId === null
+  const displayCategoryName = selectedCategoryId === null
     ? 'All Channels'
-    : categories?.find(c => c.id === displayCategoryId)?.name ?? 'Channels'
+    : categories?.find(c => c.id === selectedCategoryId)?.name ?? 'Channels'
 
   const handleCategoryClick = (categoryId: string | null) => {
     if (isDesktop) {
@@ -163,10 +160,8 @@ export default function ChannelCategories() {
                 <CategoryListItem
                   name="All channels"
                   count={totalCount}
-                  isActive={displayCategoryId === null}
+                  isActive={selectedCategoryId === null}
                   onClick={() => handleCategoryClick(null)}
-                  onMouseEnter={() => setHoveredCategoryId(null)}
-                  onMouseLeave={() => setHoveredCategoryId(null)}
                 />
                 <CategoryListItem
                   name="Favorites"
@@ -174,8 +169,6 @@ export default function ChannelCategories() {
                   starred
                   isActive={false}
                   onClick={() => {}}
-                  onMouseEnter={() => {}}
-                  onMouseLeave={() => {}}
                 />
               </>
             )}
@@ -185,10 +178,8 @@ export default function ChannelCategories() {
                 key={cat.id}
                 name={cat.name}
                 count={channelCounts?.get(cat.id) ?? 0}
-                isActive={displayCategoryId === cat.id}
+                isActive={selectedCategoryId === cat.id}
                 onClick={() => handleCategoryClick(cat.id)}
-                onMouseEnter={() => setHoveredCategoryId(cat.id)}
-                onMouseLeave={() => setHoveredCategoryId(null)}
               />
             ))}
 
@@ -216,7 +207,7 @@ export default function ChannelCategories() {
           <div className="flex-1 overflow-y-auto p-4">
             {previewChannels === undefined && (
               <div className="flex items-center justify-center h-full">
-                <p className="text-slate-400">Hover or select a category</p>
+                <p className="text-slate-400">Select a category</p>
               </div>
             )}
 
@@ -250,16 +241,12 @@ type CategoryListItemProps = {
   starred?: boolean
   isActive?: boolean
   onClick: () => void
-  onMouseEnter: () => void
-  onMouseLeave: () => void
 }
 
-function CategoryListItem({ name, count, starred, isActive, onClick, onMouseEnter, onMouseLeave }: CategoryListItemProps) {
+function CategoryListItem({ name, count, starred, isActive, onClick }: CategoryListItemProps) {
   return (
     <button
       onClick={onClick}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
       className={`w-full h-14 px-4 flex items-center justify-between border-b border-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50 ${
         isActive
           ? 'bg-indigo-600/20'
