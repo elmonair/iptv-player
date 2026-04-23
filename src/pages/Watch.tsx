@@ -310,48 +310,48 @@ export default function Watch() {
 
   return (
     <div className="h-screen bg-slate-950 flex flex-col overflow-hidden">
-      <header className="h-16 flex-shrink-0 flex items-center gap-4 px-4 border-b border-slate-800 bg-slate-900">
+      <header className="h-14 sm:h-16 flex-shrink-0 flex items-center gap-2 sm:gap-4 px-2 sm:px-4 border-b border-slate-800 bg-slate-900">
         <button
           onClick={() => navigate('/live')}
-          className="flex items-center gap-2 px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50 min-h-[44px]"
+          className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50 min-h-[44px]"
         >
-          <ArrowLeft className="w-5 h-5" />
-          <span className="text-base font-medium">Back</span>
+          <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
+          <span className="text-sm sm:text-base font-medium hidden sm:inline">Back</span>
         </button>
-        <div className="flex-1 flex items-center gap-3 min-w-0">
-          <h1 className="text-xl font-semibold text-white truncate">{channelName || 'Loading...'}</h1>
+        <div className="flex-1 flex items-center gap-2 sm:gap-3 min-w-0">
+          <h1 className="text-base sm:text-lg lg:text-xl font-semibold text-white truncate">{channelName || 'Loading...'}</h1>
           {videoInfo && (
-            <span className="text-slate-500 text-sm font-mono flex-shrink-0">
+            <span className="text-slate-500 text-xs sm:text-sm font-mono flex-shrink-0">
               {videoInfo.width}x{videoInfo.height}
               {videoInfo.fps > 0 && ` @ ${videoInfo.fps}fps`}
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-1 sm:gap-2">
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50"
+            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50"
             aria-label={isSidebarOpen ? 'Hide channel list' : 'Show channel list'}
           >
             {isSidebarOpen ? <Tv2 className="w-5 h-5" /> : <List className="w-5 h-5" />}
           </button>
           <button
             onClick={handlePrevChannel}
-            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50"
+            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50"
             aria-label="Previous channel"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
           <button
             onClick={handleNextChannel}
-            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50"
+            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50"
             aria-label="Next channel"
           >
             <ChevronRight className="w-5 h-5" />
           </button>
           <button
             onClick={handleFullscreenToggle}
-            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50"
+            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50"
             aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
           >
             {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
@@ -361,12 +361,12 @@ export default function Watch() {
 
       <div className="flex-1 flex overflow-hidden">
         {isSidebarOpen && categoryChannels.length > 0 && (
-          <aside className="w-72 flex-shrink-0 border-r border-slate-800 bg-slate-900/50 overflow-y-auto">
-            <div className="p-4 border-b border-slate-800">
-              <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide">{categoryName}</h2>
-              <p className="text-xs text-slate-500 mt-1">{categoryChannels.length} channels</p>
+          <aside className="w-full sm:w-72 flex-shrink-0 border-r border-slate-800 bg-slate-900/50 overflow-y-auto">
+            <div className="p-3 sm:p-4 border-b border-slate-800">
+              <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide truncate">{categoryName}</h2>
+              <p className="text-xs text-slate-500 mt-0.5">{categoryChannels.length} channels</p>
             </div>
-            <div className="p-2 space-y-1">
+            <div className="p-1.5 sm:p-2 space-y-1">
               {categoryChannels.map((chan) => {
                 const isActive = chan.id === currentChanId
                 return (
@@ -374,7 +374,7 @@ export default function Watch() {
                     key={chan.id}
                     ref={isActive ? activeChannelRef : null}
                     onClick={() => navigate(`/watch/${encodeURIComponent(chan.id)}`)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50 min-h-[48px] ${
+                    className={`w-full flex items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2.5 rounded-lg transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50 min-h-[48px] ${
                       isActive
                         ? 'bg-indigo-600/20 text-indigo-400'
                         : 'text-slate-300 hover:bg-slate-800'
@@ -384,7 +384,7 @@ export default function Watch() {
                       <img
                         src={chan.logoUrl}
                         alt={chan.name}
-                        className="w-8 h-8 object-contain rounded flex-shrink-0 bg-slate-800"
+                        className="w-8 h-8 sm:w-10 sm:h-10 object-contain rounded flex-shrink-0 bg-slate-800"
                         loading="lazy"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement
@@ -394,7 +394,7 @@ export default function Watch() {
                         }}
                       />
                     ) : (
-                      <div className="w-8 h-8 bg-slate-800 rounded flex items-center justify-center text-xs font-semibold text-slate-400 flex-shrink-0">
+                      <div className="w-8 h-8 sm:w-10 sm:h-10 bg-slate-800 rounded flex items-center justify-center text-xs sm:text-sm font-semibold text-slate-400 flex-shrink-0">
                         {chan.name.slice(0, 2).toUpperCase()}
                       </div>
                     )}
@@ -406,8 +406,8 @@ export default function Watch() {
           </aside>
         )}
 
-        <div className="flex-1 flex flex-col items-center overflow-hidden p-4">
-          <div className="relative w-full max-w-6xl flex-shrink-0">
+        <div className="flex-1 flex flex-col items-center overflow-hidden p-2 sm:p-4">
+          <div className="relative w-full max-w-6xl lg:max-w-[1280px] flex-shrink-0">
             <video
               ref={videoRef}
               controls
@@ -417,10 +417,10 @@ export default function Watch() {
             {status === 'ready-click-to-play' && (
               <button
                 onClick={handlePlayClick}
-                className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-lg hover:bg-black/50 transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50"
+                className="absolute inset-0 flex items-center justify-center bg-black/60 rounded-lg hover:bg-black/50 transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50"
               >
-                <div className="w-20 h-20 bg-indigo-600 rounded-full flex items-center justify-center hover:bg-indigo-500 transition-colors">
-                  <svg className="w-10 h-10 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+                <div className="w-16 h-16 sm:w-20 sm:h-20 bg-indigo-600 rounded-full flex items-center justify-center hover:bg-indigo-500 transition-colors">
+                  <svg className="w-8 h-8 sm:w-10 sm:h-10 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
                     <path d="M8 5v14l11-7z" />
                   </svg>
                 </div>
@@ -429,24 +429,24 @@ export default function Watch() {
           </div>
 
           {status === 'playing' && categoryChannels.length > 1 && (
-            <p className="mt-3 text-slate-500 text-sm">Use ↑ / ↓ arrows or the buttons to change channels</p>
+            <p className="mt-2 sm:mt-3 text-slate-500 text-xs sm:text-sm">Use ↑ / ↓ arrows or the buttons to change channels</p>
           )}
 
-          <div className="mt-4 text-center">
+          <div className="mt-3 sm:mt-4 text-center">
             {status === 'loading' && (
               <div className="flex items-center justify-center gap-2 text-slate-400">
                 <Loader2 className="w-5 h-5 animate-spin" />
-                <span>Loading channel...</span>
+                <span className="text-sm sm:text-base">Loading channel...</span>
               </div>
             )}
             {status === 'ready-click-to-play' && (
-              <p className="text-slate-400 text-base">Click play to start</p>
+              <p className="text-slate-400 text-sm sm:text-base">Click play to start</p>
             )}
             {status === 'playing' && (
-              <p className="text-green-400 text-base">Playing</p>
+              <p className="text-green-400 text-sm sm:text-base">Playing</p>
             )}
             {status === 'error' && (
-              <p className="text-red-400 text-base">{errorMsg}</p>
+              <p className="text-red-400 text-sm sm:text-base">{errorMsg}</p>
             )}
           </div>
         </div>
