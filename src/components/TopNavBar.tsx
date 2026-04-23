@@ -17,27 +17,16 @@ export function TopNavBar() {
   const [showUserMenu, setShowUserMenu] = useState(false)
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
   const activeSource = getActiveSource()
-  const membershipExpDate = usePlaylistStore((state) => state.membershipExpDate)
 
   const deviceId = getDeviceId()
 
   const formatExpDate = (expDate: number | null): string => {
-    if (!expDate || expDate === 0) return 'Never'
+    if (!expDate || expDate === 0) return ''
     const date = new Date(expDate * 1000)
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
-  const getMembershipStatus = (expDate: number | null): { label: string; className: string } => {
-    if (!expDate || expDate === 0) return { label: 'Never', className: 'text-slate-500' }
-    const now = Date.now() / 1000
-    if (expDate < now) return { label: 'Expired', className: 'text-red-500' }
-    const daysLeft = Math.ceil((expDate - now) / 86400)
-    if (daysLeft <= 7) return { label: `Expires in ${daysLeft}d`, className: 'text-orange-400' }
-    if (daysLeft <= 30) return { label: `Expires in ${daysLeft}d`, className: 'text-yellow-400' }
-    return { label: formatExpDate(expDate), className: 'text-blue-400' }
-  }
-
-  const membership = getMembershipStatus(membershipExpDate)
+  const playlistExpDate = activeSource?.type === 'xtream' && activeSource.expDate ? formatExpDate(activeSource.expDate) : ''
 
   return (
     <nav className="sticky top-0 z-50 bg-slate-900 border-b border-slate-700 h-14 sm:h-16 flex items-center justify-between px-4 sm:px-6">
@@ -55,12 +44,15 @@ export function TopNavBar() {
         <div className="flex items-center gap-1.5">
           <Shield size={14} className="text-yellow-500" />
           <span className="text-slate-400">Membership:</span>
-          <span className={`font-medium ${membership.className}`}>{membership.label}</span>
+          <span className="font-medium text-green-500">Active (12 months)</span>
         </div>
         <div className="h-4 w-px bg-slate-700" />
         <div className="flex items-center gap-1.5">
           <span className="text-slate-400">Playlist:</span>
           <span className="text-white font-medium">{activeSource?.name || 'None'}</span>
+          {playlistExpDate && (
+            <span className="text-slate-500">(exp: {playlistExpDate})</span>
+          )}
         </div>
         <div className="h-4 w-px bg-slate-700" />
         <div className="flex items-center gap-1.5">
@@ -107,26 +99,15 @@ function UserDropdownMenu({ onClose }: UserDropdownMenuProps) {
   const navigate = useNavigate()
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
   const activeSource = getActiveSource()
-  const membershipExpDate = usePlaylistStore((state) => state.membershipExpDate)
   const deviceId = getDeviceId()
 
   const formatExpDate = (expDate: number | null): string => {
-    if (!expDate || expDate === 0) return 'Never'
+    if (!expDate || expDate === 0) return ''
     const date = new Date(expDate * 1000)
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
   }
 
-  const getMembershipStatus = (expDate: number | null): { label: string; className: string } => {
-    if (!expDate || expDate === 0) return { label: 'Never', className: 'text-slate-500' }
-    const now = Date.now() / 1000
-    if (expDate < now) return { label: 'Expired', className: 'text-red-500' }
-    const daysLeft = Math.ceil((expDate - now) / 86400)
-    if (daysLeft <= 7) return { label: `Expires in ${daysLeft}d`, className: 'text-orange-400' }
-    if (daysLeft <= 30) return { label: `Expires in ${daysLeft}d`, className: 'text-yellow-400' }
-    return { label: formatExpDate(expDate), className: 'text-blue-400' }
-  }
-
-  const membership = getMembershipStatus(membershipExpDate)
+  const playlistExpDate = activeSource?.type === 'xtream' && activeSource.expDate ? formatExpDate(activeSource.expDate) : ''
 
   const menuItems = [
     { label: 'Subscription Info', onClick: () => { navigate('/subscription'); onClose() } },
@@ -149,11 +130,14 @@ function UserDropdownMenu({ onClose }: UserDropdownMenuProps) {
         <div className="px-4 py-3 border-b border-slate-700 space-y-2">
           <div className="flex items-center justify-between text-xs">
             <span className="text-slate-400">Membership</span>
-            <span className={`font-medium ${membership.className}`}>{membership.label}</span>
+            <span className="font-medium text-green-500">Active (12 months)</span>
           </div>
           <div className="flex items-center justify-between text-xs">
             <span className="text-slate-400">Playlist</span>
-            <span className="text-slate-300">{activeSource?.name || 'None'}</span>
+            <span className="text-slate-300">
+              {activeSource?.name || 'None'}
+              {playlistExpDate && <span className="text-slate-500"> (exp: {playlistExpDate})</span>}
+            </span>
           </div>
           <div className="flex items-center justify-between text-xs">
             <span className="text-slate-400">Device ID</span>
