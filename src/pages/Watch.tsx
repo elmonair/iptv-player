@@ -273,7 +273,7 @@ export default function Watch() {
     if (activeChannelRef.current) {
       activeChannelRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }
-  }, [channelId])
+  }, [currentChanId])
 
   useEffect(() => {
     if (!channelId) {
