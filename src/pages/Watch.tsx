@@ -365,12 +365,14 @@ export default function Watch() {
         {/* Video Section */}
         <div className="flex-shrink-0 lg:flex-1 flex flex-col bg-black min-h-0">
           {/* Video Player */}
-          <div className="relative flex-1 min-h-0 bg-black flex items-center justify-center p-2 sm:p-4">
+          <div className="w-full aspect-video bg-black flex items-center justify-center">
             <video
               ref={videoRef}
+              key={channelName}
               controls
               playsInline
-              className="max-w-full max-h-full object-contain"
+              autoPlay
+              className="w-full h-full object-contain"
             />
             {status === 'ready-click-to-play' && (
               <button
@@ -413,7 +415,7 @@ export default function Watch() {
 
         {/* Channel List */}
         {isSidebarOpen && categoryChannels.length > 0 && (
-          <aside className="flex-shrink-0 w-full lg:w-72 xl:w-80 flex flex-col bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-700 min-h-0">
+          <aside className="flex-shrink-0 w-full lg:w-72 xl:w-80 flex flex-col bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-700 overflow-hidden">
             {/* Category Header */}
             <div className="flex-shrink-0 p-3 border-b border-slate-700">
               <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide truncate">{categoryName}</h2>
