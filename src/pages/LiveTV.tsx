@@ -10,7 +10,8 @@ export default function LiveTV() {
   const navigate = useNavigate()
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
   const activeSource = getActiveSource()
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
+  const selectedCategoryId = usePlaylistStore((state) => state.selectedCategoryId)
+  const setSelectedCategoryId = usePlaylistStore((state) => state.setSelectedCategoryId)
   const [sidebarVisible, setSidebarVisible] = useState(true)
 
   if (!activeSource) {
@@ -28,7 +29,6 @@ export default function LiveTV() {
 
   return (
     <div className="flex flex-1 h-full overflow-hidden">
-      {/* Categories panel — fixed width, always visible */}
       <div className="flex h-full">
         {sidebarVisible && (
           <CategorySidebar
@@ -38,7 +38,6 @@ export default function LiveTV() {
           />
         )}
 
-        {/* Toggle button between sidebar and grid */}
         <button
           onClick={() => setSidebarVisible((v) => !v)}
           className="w-8 h-full flex-shrink-0 bg-slate-900 border-r border-slate-800 flex items-center justify-center hover:bg-slate-800 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
@@ -52,7 +51,6 @@ export default function LiveTV() {
         </button>
       </div>
 
-      {/* Channels panel — takes remaining width, independently scrollable */}
       <div className="flex-1 h-full overflow-hidden">
         <ChannelGrid
           sourceId={activeSource.id}
