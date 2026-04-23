@@ -40,8 +40,8 @@ export default function LiveTV() {
       {/* Category sidebar - Sticky on desktop */}
       <aside
         className={`
-          hidden md:sticky md:top-0 md:h-screen md:overflow-y-auto md:w-64 md:flex-shrink-0 md:border-r md:border-slate-700 md:bg-slate-900
-          fixed inset-y-0 left-0 z-40 w-72 bg-slate-900 border-r border-slate-800
+          hidden md:sticky md:top-0 md:h-screen md:w-64 md:flex-shrink-0 md:border-r md:border-slate-700 md:bg-slate-900 md:flex md:flex-col
+          fixed inset-y-0 left-0 z-40 w-72 bg-slate-900 border-r border-slate-800 flex flex-col
           transform transition-transform duration-200 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
