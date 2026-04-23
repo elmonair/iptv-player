@@ -10,6 +10,7 @@ export type PlaylistSourceRecord = {
   serverUrlEncrypted?: string
   usernameEncrypted?: string
   passwordEncrypted?: string
+  expDate?: number
 }
 
 export type CategoryRecord = {

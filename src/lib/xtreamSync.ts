@@ -51,6 +51,11 @@ export async function syncXtreamPlaylist(
     }
     console.log('[Xtream Sync] Authenticated for user:', userInfo.user_info.username)
 
+    const expDate = userInfo.user_info.exp_date || null
+    if (expDate) {
+      await db.sources.update(source.id, { expDate })
+    }
+
     await db.syncMetadata.put({
       sourceId: source.id,
       lastSyncAt: 0,

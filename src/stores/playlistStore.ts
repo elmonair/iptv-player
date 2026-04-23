@@ -19,12 +19,13 @@ export type XtreamSource = {
   username: string
   password: string
   createdAt: number
+  expDate: number | null
 }
 
 export type PlaylistSource = M3UUrlSource | XtreamSource
 
 export type M3UUrlSourceInput = Omit<M3UUrlSource, 'id' | 'createdAt'>
-export type XtreamSourceInput = Omit<XtreamSource, 'id' | 'createdAt'>
+export type XtreamSourceInput = Omit<XtreamSource, 'id' | 'createdAt' | 'expDate'>
 
 interface PlaylistStore {
   sources: PlaylistSource[]
@@ -32,6 +33,7 @@ interface PlaylistStore {
   loaded: boolean
   lastChannelId: string | null
   selectedCategoryId: string | null
+  membershipExpDate: number | null
 
   loadSourcesFromDb: () => Promise<void>
   addSource: (source: M3UUrlSourceInput | XtreamSourceInput) => Promise<string>
@@ -41,6 +43,7 @@ interface PlaylistStore {
   setSelectedCategoryId: (id: string | null) => void
   getActiveSource: () => PlaylistSource | undefined
   clearAllData: () => Promise<void>
+  setMembershipExpDate: (expDate: number | null) => void
 }
 
 export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
@@ -49,6 +52,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
   loaded: false,
   lastChannelId: null,
   selectedCategoryId: null,
+  membershipExpDate: null,
 
   loadSourcesFromDb: async () => {
     const records = await db.sources.toArray()
@@ -75,6 +79,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
           username: await decryptString(record.usernameEncrypted),
           password: await decryptString(record.passwordEncrypted),
           createdAt: record.createdAt,
+          expDate: record.expDate ?? null,
         })
       }
     }
@@ -82,10 +87,14 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
     const sortedSources = sources.sort((a, b) => b.createdAt - a.createdAt)
     const activeSourceId = sortedSources.length > 0 ? sortedSources[0].id : null
 
+    const activeSource = sortedSources.find((s) => s.id === activeSourceId)
+    const membershipExpDate = activeSource?.type === 'xtream' ? (activeSource as XtreamSource).expDate : null
+
     set({
       sources: sortedSources,
       activeSourceId,
       loaded: true,
+      membershipExpDate,
     })
   },
 
@@ -110,11 +119,10 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
 
     await db.sources.add(record)
 
-    const newSource: PlaylistSource = {
-      ...source,
-      id,
-      createdAt,
-    }
+    const newSource: PlaylistSource =
+      source.type === 'xtream'
+        ? { ...source, id, createdAt, expDate: null }
+        : { ...source, id, createdAt }
 
     set((state) => ({
       sources: [...state.sources, newSource].sort((a, b) => b.createdAt - a.createdAt),
@@ -156,6 +164,11 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
       sources: [],
       activeSourceId: null,
       loaded: true,
+      membershipExpDate: null,
     })
+  },
+
+  setMembershipExpDate: (expDate) => {
+    set({ membershipExpDate: expDate })
   },
 }))
