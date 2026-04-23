@@ -28,7 +28,7 @@ export default function LiveTV() {
   }
 
   return (
-    <div className="flex flex-1 h-full overflow-hidden relative">
+    <div className="flex flex-1 h-full overflow-hidden">
       {/* Mobile sidebar overlay */}
       {sidebarOpen && (
         <div
@@ -88,7 +88,7 @@ export default function LiveTV() {
         </svg>
       </button>
 
-      <div className="flex-1 h-full overflow-hidden">
+      <div className="flex-1 h-full overflow-y-auto">
         <ChannelGrid
           sourceId={activeSource.id}
           selectedCategoryId={selectedCategoryId}
