@@ -93,7 +93,7 @@ export default function ChannelGrid({ sourceId, selectedCategoryId, onChannelCli
   }
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6">
+    <div ref={containerRef} className="flex-1 p-3 sm:p-4 md:p-6 lg:overflow-y-auto lg:max-h-[calc(100vh-200px)] lg:min-h-0">
       <div style={{ height: totalHeight, position: 'relative' }}>
         {virtualizer.getVirtualItems().map((virtualRow) => {
           const rowStartIndex = virtualRow.index * columns
