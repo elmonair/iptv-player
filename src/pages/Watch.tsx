@@ -366,7 +366,7 @@ export default function Watch() {
             </div>
             <div className="p-2 space-y-1">
               {categoryChannels.map((chan) => {
-                const isActive = chan.id === decodeURIComponent(channelId ?? '')
+                const isActive = chan.id === channelId
                 return (
                   <button
                     key={chan.id}
