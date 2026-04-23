@@ -66,9 +66,11 @@ A response body can only be read ONCE. Always read into a variable first, then p
 Initial-load routing runs ONCE via useRef guard. Never add useEffect that force-redirects on every render — it breaks navigation to specific routes.
 
 ### Proxy setup
-- Dev only: Vite proxy at /api/xtream/* routes to VITE_XTREAM_PROXY_TARGET (from .env.local)
-- Production: will need a server-side proxy on the VPS (not yet built)
+- API calls go DIRECTLY to the Xtream server (serverUrl from login form)
+- The Xtream server MUST have CORS headers enabled for the app's origin
 - Stream URLs go directly to the Xtream server (Chrome bypasses CORS for media elements)
+- Enable CORS in your Xtream admin panel: Settings → API/CORS → add your origin
+- Production: a server-side proxy avoids CORS configuration entirely (not yet built)
 
 ### Secure context requirement
 AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhost). The app shows a clear error in XtreamCodesForm when accessed via LAN IP without HTTPS.

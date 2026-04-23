@@ -14,22 +14,23 @@ export type { XtreamCredentials }
 
 const API_TIMEOUT = 30000
 
-function buildApiPath(action: string, extraParams: Record<string, string> = {}): string {
+function buildApiUrl(serverUrl: string, action: string, extraParams: Record<string, string> = {}): string {
   const params = new URLSearchParams({ action, ...extraParams })
-  return `/api/xtream/player_api.php?${params.toString()}`
+  return `${serverUrl}/player_api.php?${params.toString()}`
 }
 
-function buildApiUrl(action: string, extraParams: Record<string, string> = {}): string {
-  return buildApiPath(action, extraParams)
-}
-
-async function fetchJson<T>(action: string, credentials: XtreamCredentials, extraParams: Record<string, string> = {}): Promise<T> {
+async function fetchJson<T>(
+  serverUrl: string,
+  action: string,
+  credentials: XtreamCredentials,
+  extraParams: Record<string, string> = {},
+): Promise<T> {
   const controller = new AbortController()
   const timeoutId = setTimeout(() => controller.abort(), API_TIMEOUT)
 
   let response: Response
   try {
-    const urlWithCreds = `${buildApiUrl(action, extraParams)}&username=${encodeURIComponent(credentials.username)}&password=${encodeURIComponent(credentials.password)}`
+    const urlWithCreds = `${buildApiUrl(serverUrl, action, extraParams)}&username=${encodeURIComponent(credentials.username)}&password=${encodeURIComponent(credentials.password)}`
     console.log(`[Xtream API] Fetching: ${action}`)
 
     response = await fetch(urlWithCreds, {
@@ -53,7 +54,7 @@ async function fetchJson<T>(action: string, credentials: XtreamCredentials, extr
 
   const trimmed = bodyText.trimStart()
   if (trimmed.startsWith('<')) {
-    throw new Error('Xtream server returned HTML instead of JSON (check proxy config)')
+    throw new Error('Xtream server returned HTML instead of JSON (check CORS headers or server URL)')
   }
 
   if (!trimmed) {
@@ -69,48 +70,47 @@ async function fetchJson<T>(action: string, credentials: XtreamCredentials, extr
   }
 }
 
-export async function getUserInfo(credentials: XtreamCredentials): Promise<XtreamUserInfo> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const data = await fetchJson<{ user_info: any; auth: number; server_info?: any }>('get_user_info', credentials)
+export async function getUserInfo(serverUrl: string, credentials: XtreamCredentials): Promise<XtreamUserInfo> {
+  const data = await fetchJson<{ user_info: unknown; auth: number; server_info?: unknown }>(
+    serverUrl,
+    'get_user_info',
+    credentials,
+  )
 
   if (data.auth === 0) {
     throw new Error('Xtream authentication failed - check your credentials')
   }
 
-  if (!data.user_info) {
-    throw new Error('Xtream server returned invalid user info')
-  }
-
   return data as unknown as XtreamUserInfo
 }
 
-export async function getLiveCategories(credentials: XtreamCredentials): Promise<XtreamLiveCategory[]> {
-  return await fetchJson<XtreamLiveCategory[]>('get_live_categories', credentials)
+export async function getLiveCategories(serverUrl: string, credentials: XtreamCredentials): Promise<XtreamLiveCategory[]> {
+  return await fetchJson<XtreamLiveCategory[]>(serverUrl, 'get_live_categories', credentials)
 }
 
-export async function getLiveStreams(credentials: XtreamCredentials, categoryId?: string): Promise<XtreamLiveStream[]> {
+export async function getLiveStreams(serverUrl: string, credentials: XtreamCredentials, categoryId?: string): Promise<XtreamLiveStream[]> {
   const params: Record<string, string> = categoryId ? { category_id: categoryId } : {}
-  return await fetchJson<XtreamLiveStream[]>('get_live_streams', credentials, params)
+  return await fetchJson<XtreamLiveStream[]>(serverUrl, 'get_live_streams', credentials, params)
 }
 
-export async function getVodCategories(credentials: XtreamCredentials): Promise<XtreamVodCategory[]> {
-  return await fetchJson<XtreamVodCategory[]>('get_vod_categories', credentials)
+export async function getVodCategories(serverUrl: string, credentials: XtreamCredentials): Promise<XtreamVodCategory[]> {
+  return await fetchJson<XtreamVodCategory[]>(serverUrl, 'get_vod_categories', credentials)
 }
 
-export async function getVodStreams(credentials: XtreamCredentials, categoryId?: string): Promise<XtreamVodStream[]> {
+export async function getVodStreams(serverUrl: string, credentials: XtreamCredentials, categoryId?: string): Promise<XtreamVodStream[]> {
   const params: Record<string, string> = categoryId ? { category_id: categoryId } : {}
-  return await fetchJson<XtreamVodStream[]>('get_vod_streams', credentials, params)
+  return await fetchJson<XtreamVodStream[]>(serverUrl, 'get_vod_streams', credentials, params)
 }
 
-export async function getSeriesCategories(credentials: XtreamCredentials): Promise<XtreamSeriesCategory[]> {
-  return await fetchJson<XtreamSeriesCategory[]>('get_series_categories', credentials)
+export async function getSeriesCategories(serverUrl: string, credentials: XtreamCredentials): Promise<XtreamSeriesCategory[]> {
+  return await fetchJson<XtreamSeriesCategory[]>(serverUrl, 'get_series_categories', credentials)
 }
 
-export async function getSeriesList(credentials: XtreamCredentials, categoryId?: string): Promise<XtreamSeries[]> {
+export async function getSeriesList(serverUrl: string, credentials: XtreamCredentials, categoryId?: string): Promise<XtreamSeries[]> {
   const params: Record<string, string> = categoryId ? { category_id: categoryId } : {}
-  return await fetchJson<XtreamSeries[]>('get_series', credentials, params)
+  return await fetchJson<XtreamSeries[]>(serverUrl, 'get_series', credentials, params)
 }
 
-export async function getSeriesInfo(credentials: XtreamCredentials, seriesId: string): Promise<XtreamSeriesInfo> {
-  return await fetchJson<XtreamSeriesInfo>('get_series_info', credentials, { series_id: seriesId })
+export async function getSeriesInfo(serverUrl: string, credentials: XtreamCredentials, seriesId: string): Promise<XtreamSeriesInfo> {
+  return await fetchJson<XtreamSeriesInfo>(serverUrl, 'get_series_info', credentials, { series_id: seriesId })
 }

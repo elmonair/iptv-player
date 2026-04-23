@@ -7,7 +7,6 @@ import {
   getVodStreams,
   getSeriesCategories,
   getSeriesList,
-  type XtreamCredentials,
 } from './xtream'
 import { db } from './db'
 import { makeId, saveInBatches } from './xtreamSyncHelpers'
@@ -38,14 +37,15 @@ export async function syncXtreamPlaylist(
     throw new Error('Source is not an Xtream Codes source')
   }
   const xtreamSource = source as XtreamSource
-  const credentials: XtreamCredentials = {
+  const serverUrl = xtreamSource.serverUrl
+  const credentials = {
     username: xtreamSource.username,
     password: xtreamSource.password,
   }
 
   try {
     onProgress({ phase: 'auth', message: 'Authenticating...', percent: 2 })
-    const userInfo = await getUserInfo(credentials)
+    const userInfo = await getUserInfo(serverUrl, credentials)
     if (userInfo.user_info.auth !== 1) {
       throw new Error('Xtream authentication failed — check your credentials')
     }
@@ -61,12 +61,12 @@ export async function syncXtreamPlaylist(
     })
 
     onProgress({ phase: 'live-categories', message: 'Loading live TV categories...', percent: 5 })
-    const liveCategories = await getLiveCategories(credentials)
+    const liveCategories = await getLiveCategories(serverUrl, credentials)
     console.log(`[Xtream Sync] ${liveCategories.length} live categories`)
     await saveCategories(source.id, 'live', liveCategories)
 
     onProgress({ phase: 'live-streams', message: 'Loading live TV channels...', percent: 10 })
-    const liveStreams = await getLiveStreams(credentials)
+    const liveStreams = await getLiveStreams(serverUrl, credentials)
     console.log(`[Xtream Sync] ${liveStreams.length} live streams`)
 
     await db.channels.where('sourceId').equals(source.id).delete()
@@ -93,12 +93,12 @@ export async function syncXtreamPlaylist(
     })
 
     onProgress({ phase: 'vod-categories', message: 'Loading movie categories...', percent: 32 })
-    const vodCategories = await getVodCategories(credentials)
+    const vodCategories = await getVodCategories(serverUrl, credentials)
     console.log(`[Xtream Sync] ${vodCategories.length} VOD categories`)
     await saveCategories(source.id, 'movie', vodCategories)
 
     onProgress({ phase: 'vod-streams', message: 'Loading movies...', percent: 35 })
-    const vodStreams = await getVodStreams(credentials)
+    const vodStreams = await getVodStreams(serverUrl, credentials)
     console.log(`[Xtream Sync] ${vodStreams.length} VOD streams`)
 
     await db.movies.where('sourceId').equals(source.id).delete()
@@ -131,12 +131,12 @@ export async function syncXtreamPlaylist(
     })
 
     onProgress({ phase: 'series-categories', message: 'Loading series categories...', percent: 68 })
-    const seriesCategories = await getSeriesCategories(credentials)
+    const seriesCategories = await getSeriesCategories(serverUrl, credentials)
     console.log(`[Xtream Sync] ${seriesCategories.length} series categories`)
     await saveCategories(source.id, 'series', seriesCategories)
 
     onProgress({ phase: 'series-list', message: 'Loading series...', percent: 72 })
-    const seriesList = await getSeriesList(credentials)
+    const seriesList = await getSeriesList(serverUrl, credentials)
     console.log(`[Xtream Sync] ${seriesList.length} series`)
 
     await db.series.where('sourceId').equals(source.id).delete()
