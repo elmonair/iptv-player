@@ -360,10 +360,10 @@ export default function Watch() {
         </div>
       </header>
 
-      {/* Main Content Area - Side-by-side on desktop */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        {/* Video Section - Left side on desktop */}
-        <div className="flex-1 flex flex-col bg-black min-h-0">
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
+        {/* Video Section - 40vh on mobile, auto on desktop */}
+        <div className="h-[40vh] lg:h-auto lg:flex-1 flex flex-col bg-black flex-shrink-0">
           {/* Video Player */}
           <div className="flex-1 flex items-center justify-center bg-black p-2 sm:p-4">
             <video
@@ -413,9 +413,9 @@ export default function Watch() {
           </div>
         </div>
 
-        {/* Channel List - Right side on desktop */}
+        {/* Channel List - Right side on desktop, below player on mobile */}
         {isSidebarOpen && categoryChannels.length > 0 && (
-          <aside className="flex-shrink-0 w-full lg:w-80 flex flex-col bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-700 min-h-0">
+          <aside className="flex-1 lg:flex-initial lg:w-80 flex flex-col bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-700 overflow-hidden min-h-0">
             {/* Category Header */}
             <div className="flex-shrink-0 p-3 border-b border-slate-700">
               <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide truncate">{categoryName}</h2>
