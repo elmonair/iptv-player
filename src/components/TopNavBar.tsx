@@ -32,21 +32,22 @@ export function TopNavBar() {
       </button>
 
       {/* Center: Status info - Desktop only */}
-      <div className="hidden lg:flex items-center gap-4 text-xs">
+      <div className="hidden xl:flex items-center gap-4 text-xs">
         <div className="flex items-center gap-1.5">
           <Shield size={14} className="text-yellow-500" />
           <span className="text-slate-400">Membership:</span>
-          <span className="text-green-500 font-medium">Active</span>
+          <span className="text-blue-400 font-medium">Premium (Apr 30, 2026)</span>
         </div>
         <div className="h-4 w-px bg-slate-700" />
         <div className="flex items-center gap-1.5">
           <span className="text-slate-400">Playlist:</span>
-          <span className="text-white font-medium truncate max-w-[120px]">{activeSource?.name || 'None'}</span>
+          <span className="text-white font-medium">{activeSource?.name || 'None'}</span>
+          <span className="text-slate-500">(May 15, 2026)</span>
         </div>
         <div className="h-4 w-px bg-slate-700" />
         <div className="flex items-center gap-1.5">
           <Monitor size={14} className="text-slate-400" />
-          <span className="text-slate-400">Device:</span>
+          <span className="text-slate-400">Device ID:</span>
           <span className="font-mono text-slate-300 bg-slate-800 px-1.5 py-0.5 rounded">{deviceId}</span>
         </div>
       </div>
@@ -111,7 +112,11 @@ function UserDropdownMenu({ onClose }: UserDropdownMenuProps) {
         <div className="px-4 py-3 border-b border-slate-700 space-y-2">
           <div className="flex items-center justify-between text-xs">
             <span className="text-slate-400">Membership</span>
-            <span className="text-green-500 font-medium">Active</span>
+            <span className="text-blue-400 font-medium">Premium (Apr 30, 2026)</span>
+          </div>
+          <div className="flex items-center justify-between text-xs">
+            <span className="text-slate-400">Playlist</span>
+            <span className="text-slate-300">Neo (May 15, 2026)</span>
           </div>
           <div className="flex items-center justify-between text-xs">
             <span className="text-slate-400">Device ID</span>
