@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Film, Search, User, ChevronDown, ChevronUp, Shield, Monitor } from 'lucide-react'
+import { Film, Search, User, ChevronDown, ChevronUp, Shield, Monitor, Eye, EyeOff } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
 
 function getDeviceId(): string {
@@ -100,6 +100,7 @@ function UserDropdownMenu({ onClose }: UserDropdownMenuProps) {
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
   const activeSource = getActiveSource()
   const deviceId = getDeviceId()
+  const [showPin, setShowPin] = useState(false)
 
   const formatExpDate = (expDate: number | null): string => {
     if (!expDate || expDate === 0) return ''
@@ -108,6 +109,9 @@ function UserDropdownMenu({ onClose }: UserDropdownMenuProps) {
   }
 
   const playlistExpDate = activeSource?.type === 'xtream' && activeSource.expDate ? formatExpDate(activeSource.expDate) : ''
+
+  const pinCode = activeSource?.type === 'xtream' ? activeSource.password : ''
+  const maskedPin = pinCode ? '\u2022'.repeat(pinCode.length) : ''
 
   const menuItems = [
     { label: 'Subscription Info', onClick: () => { navigate('/subscription'); onClose() } },
@@ -143,6 +147,23 @@ function UserDropdownMenu({ onClose }: UserDropdownMenuProps) {
             <span className="text-slate-400">Device ID</span>
             <span className="font-mono text-slate-300 bg-slate-900 px-2 py-0.5 rounded">{deviceId}</span>
           </div>
+          {pinCode && (
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-slate-400">PIN Code</span>
+              <div className="flex items-center gap-1">
+                <span className="font-mono text-slate-300">
+                  {showPin ? pinCode : maskedPin}
+                </span>
+                <button
+                  onClick={() => setShowPin(!showPin)}
+                  className="p-1 text-slate-400 hover:text-white transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 rounded"
+                  aria-label={showPin ? 'Hide PIN' : 'Show PIN'}
+                >
+                  {showPin ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="py-1">
