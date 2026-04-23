@@ -37,14 +37,13 @@ export default function LiveTV() {
         />
       )}
 
-      {/* Category sidebar - Mobile drawer, Desktop collapsible */}
-      <div
+      {/* Category sidebar - Sticky on desktop */}
+      <aside
         className={`
-          fixed md:static inset-y-0 left-0 z-40
-          w-72 flex-shrink-0 bg-slate-900 border-r border-slate-800
-          h-full md:h-auto
+          hidden md:sticky md:top-0 md:h-screen md:overflow-y-auto md:w-64 md:flex-shrink-0 md:border-r md:border-slate-700 md:bg-slate-900
+          fixed inset-y-0 left-0 z-40 w-72 bg-slate-900 border-r border-slate-800
           transform transition-transform duration-200 ease-in-out
-          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:relative'}
+          ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
         `}
       >
         {/* Mobile close button */}
@@ -63,7 +62,7 @@ export default function LiveTV() {
           }}
           sourceId={activeSource.id}
         />
-      </div>
+      </aside>
 
       {/* Desktop toggle button */}
       <button
