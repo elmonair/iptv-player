@@ -186,7 +186,7 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 ### Completed
 - Project scaffolding (Vite + React + TypeScript + Tailwind)
 - Onboarding screen (Xtream Codes only — M3U URL tab hidden, code kept for post-MVP)
-- Zustand store for playlist sources
+- Zustand store for playlist sources with `expDate` field for Xtream playlists
 - IndexedDB with Dexie v2 schema: sources, categories, channels, movies, series, episodes, syncMetadata
 - Web Crypto AES-GCM encryption for credentials (with secure-context guard)
 - UUID generation utility (src/lib/uuid.ts) with non-secure context fallback
@@ -197,11 +197,14 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - Home page with reactive catalog counts (dexie-react-hooks useLiveQuery)
 - Re-sync button, Clear all data button
 - Strict Mode disabled
-- AppLayout shell with header (IPTV Player branding + Search/Settings buttons) and sidebar navigation (Live TV / Movies / Series)
-- Live TV page (Step 10A): CategorySidebar + ChannelGrid placeholder
-- Live TV browser (Step 10B): CategorySidebar with counts, virtualized ChannelGrid (53k+ channels), ChannelCard with logo fallback to initials
-- Watch page (Step 10C): Full-screen video player, mpegts.js, auto-play with click-to-play fallback overlay, back-to-live navigation
-- TestPlayer diagnostic page at /test-player (accessible via URL, not linked in UI)
+- AppLayout shell with TopNavBar (MishaPlayer branding with yellow accent)
+- TopNavBar: Status bar with Membership/Playlist/Device ID, PIN code with eye toggle, user dropdown
+- Live TV page: CategorySidebar with scroll, ChannelGrid with scroll, sticky sidebar on desktop
+- ChannelCategories page: Tabs, category sidebar, channel grid preview
+- Watch page: Video player (16:9 aspect ratio), channel list sidebar, fullscreen toggle, prev/next channels, keyboard navigation (↑/↓), mobile layout (40vh player / 60% list)
+- Player page layout: side-by-side on desktop, stacked on mobile
+- Scrollbars: Custom styling for category list and channel grid (10px width)
+- Height constraints: `h-screen` + `overflow-hidden` + `min-h-0` for proper flex scrolling
 
 ### Deferred (post-MVP)
 - M3U URL parsing (code stub exists for M3uUrlForm, tab hidden)
@@ -210,8 +213,6 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - Production proxy on VPS
 
 ### Not yet built
-- Channel quick-zap (remote-style up/down to change channels) — COMPLETED
-- Fullscreen toggle on Watch page — COMPLETED
 - Audio track / subtitle selection
 - Movies browsing UI (Step 12)
 - Series browsing UI (Step 12)
@@ -219,5 +220,47 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - Settings page, Multi-language, VPS deployment
 
 ## Next feature to build
-Step 11 — Channel quick-zap (up/down remote-style navigation) and fullscreen toggle on Watch page.
+Step 12 — Movies & Series browsing UI (full list views matching TiviMate pattern)
 Do NOT start until explicitly asked.
+
+## Recent Layout & Scrollbar Fixes (2026-04-23)
+### TopNavBar Updates
+- Added PIN code display with eye toggle in user dropdown (Xtream password)
+- Added playlist expiry date display beside playlist name (from exp_date field)
+
+### Watch Page Fixes
+- Player layout: side-by-side on desktop (flex-1 + lg:flex-row), stacked on mobile
+- Player container: `aspect-video` with `key={channelName}` for proper remount
+- Video: `w-full h-full object-contain` + `autoPlay`
+- Mobile: player `h-[40vh]` (40% viewport), channel list `flex-1` (60%)
+- Channel list: `overflow-y-scroll` with custom scrollbar (10px width)
+
+### LiveTV Page Fixes
+- Root container: `h-screen flex flex-col overflow-hidden`
+- Content wrapper: `flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0`
+- Desktop sidebar: `sticky top-0 h-screen` + `overflow-y-auto` on nav inside CategorySidebar
+- Channel grid: `overflow-y-auto lg:max-h-[calc(vertHeight-200px)]`
+- Independent scroll for sidebar and grid
+
+### CategorySidebar Component
+- Root: `w-full h-full flex flex-col overflow-hidden`
+- Scrollable nav: `flex-1 overflow-y-auto min-h-0`
+- This ensures scrollbar appears when content overflows available height
+
+### CategoryCategories Page Fixes
+- Root: `h-screen bg-slate-900 flex flex-col overflow-hidden`
+- Content: `flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0`
+- This prevents sidebar from growing beyond viewport height (was 715,314px tall bug)
+
+### Scrollbar Styling (src/index.css)
+- `.overflow-y-scroll::-webkit-scrollbar` = 10px width, slate track, slate thumb
+- Firefox support with `scrollbar-width: thin`
+- Prominent, always-visible scrollbar for better UX
+
+### Critical Height Constraint Pattern
+For proper flex scrolling in nested containers:
+- Root: `h-screen flex flex-col overflow-hidden`
+- Content wrapper: `flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0`
+- Scrollable area: `flex-1 overflow-y-auto min-h-0`
+- Fixed elements: `flex-shrink-0`
+Without `min-h-0` on flex children, they won't shrink below their content size, breaking scroll.
