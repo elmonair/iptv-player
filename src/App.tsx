@@ -29,7 +29,7 @@ function AppContent() {
             navigate('/', { replace: true })
           }
         } else {
-          if (pathname === '/' || pathname === '/loading') {
+          if (pathname === '/') {
             navigate('/home', { replace: true })
           }
         }
