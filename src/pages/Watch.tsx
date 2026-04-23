@@ -309,8 +309,9 @@ export default function Watch() {
   }, [channelId, navigate, zapTo, destroyPlayer])
 
   return (
-    <div className="h-screen bg-slate-950 flex flex-col overflow-hidden">
-      <header className="h-14 sm:h-16 flex-shrink-0 flex items-center gap-2 sm:gap-4 px-2 sm:px-4 border-b border-slate-800 bg-slate-900">
+    <div className="fixed inset-0 flex flex-col bg-slate-900">
+      {/* Top Navigation Bar */}
+      <header className="flex-shrink-0 h-14 sm:h-16 flex items-center gap-2 sm:gap-4 px-2 sm:px-4 border-b border-slate-800 bg-slate-900">
         <button
           onClick={() => navigate('/live')}
           className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50 min-h-[44px]"
@@ -359,16 +360,17 @@ export default function Watch() {
         </div>
       </header>
 
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden">
-        {/* Video Section - takes remaining space */}
-        <div className="flex-1 flex flex-col bg-black min-h-0">
-          {/* Video Player - fills this container with aspect ratio */}
-          <div className="relative flex-1 flex items-center justify-center p-2 sm:p-4 min-h-0">
+      {/* Main Content Area */}
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row">
+        {/* Video Section */}
+        <div className="flex-shrink-0 lg:flex-1 flex flex-col bg-black min-h-0">
+          {/* Video Player */}
+          <div className="relative flex-1 min-h-0 bg-black flex items-center justify-center p-2 sm:p-4">
             <video
               ref={videoRef}
               controls
               playsInline
-              className="w-full h-full object-contain"
+              className="max-w-full max-h-full object-contain"
             />
             {status === 'ready-click-to-play' && (
               <button
@@ -409,17 +411,17 @@ export default function Watch() {
           </div>
         </div>
 
-        {/* Channel List - Desktop: beside video, Mobile: below video */}
+        {/* Channel List */}
         {isSidebarOpen && categoryChannels.length > 0 && (
-          <aside className="w-full lg:w-72 xl:w-80 flex-shrink-0 flex flex-col bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-700 overflow-hidden">
-            {/* Category Header - fixed, doesn't scroll */}
+          <aside className="flex-shrink-0 w-full lg:w-72 xl:w-80 flex flex-col bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-700 min-h-0">
+            {/* Category Header */}
             <div className="flex-shrink-0 p-3 border-b border-slate-700">
               <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide truncate">{categoryName}</h2>
               <p className="text-xs text-slate-500 mt-0.5">{categoryChannels.length} channels</p>
             </div>
-            {/* Channel List - ONLY this part scrolls */}
-            <div className="flex-1 overflow-y-auto p-2">
-              <div className="flex flex-col gap-1">
+            {/* Channel List - ONLY this scrolls */}
+            <div className="flex-1 overflow-y-auto">
+              <div className="flex flex-col gap-1 p-2">
                 {categoryChannels.map((chan) => {
                   const isActive = chan.id === currentChanId
                   return (
