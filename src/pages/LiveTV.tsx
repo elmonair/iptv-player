@@ -42,6 +42,7 @@ export default function LiveTV() {
         className={`
           fixed md:static inset-y-0 left-0 z-40
           w-72 flex-shrink-0 bg-slate-900 border-r border-slate-800
+          h-full md:h-auto
           transform transition-transform duration-200 ease-in-out
           ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0 md:relative'}
         `}
