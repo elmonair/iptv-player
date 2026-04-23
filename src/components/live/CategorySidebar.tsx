@@ -70,7 +70,7 @@ export default function CategorySidebar({ selectedCategoryId, onSelectCategory, 
 
   if (categories === undefined) {
     return (
-      <div className="w-64 sm:w-72 bg-slate-900 border-r border-slate-800 flex flex-col">
+      <div className="w-64 sm:w-72 bg-slate-900 border-r border-slate-800 flex flex-col overflow-y-auto max-h-[calc(100vh-200px)]">
         <div className="p-3 sm:p-4 border-b border-slate-800">
           <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Categories</h2>
         </div>
@@ -84,7 +84,7 @@ export default function CategorySidebar({ selectedCategoryId, onSelectCategory, 
   const allItems = [{ id: null, name: 'All Channels', count: totalCount }, ...(categories ?? []).map(c => ({ id: c.id, name: c.name, count: channelCounts?.get(c.id) ?? 0 }))]
 
   return (
-    <div className="w-64 sm:w-72 bg-slate-900 border-r border-slate-800 flex flex-col flex-shrink-0">
+    <div className="w-64 sm:w-72 bg-slate-900 border-r border-slate-800 flex flex-col flex-shrink-0 overflow-y-auto max-h-[calc(100vh-200px)]">
       <div className="p-3 sm:p-4 border-b border-slate-800">
         <h2 className="text-xs sm:text-sm font-semibold text-slate-400 uppercase tracking-wide">Categories</h2>
       </div>
