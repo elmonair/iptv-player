@@ -360,9 +360,55 @@ export default function Watch() {
       </header>
 
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-        {/* Sidebar - Mobile: below video, Desktop: beside video */}
+        {/* Video Player - always first */}
+        <div className="flex-1 flex flex-col items-center overflow-y-auto p-2 sm:p-4">
+          <div className="relative w-full bg-black rounded-lg overflow-hidden aspect-video max-w-3xl">
+            <video
+              ref={videoRef}
+              controls
+              playsInline
+              className="w-full h-full object-contain"
+            />
+            {status === 'ready-click-to-play' && (
+              <button
+                onClick={handlePlayClick}
+                className="absolute inset-0 flex items-center justify-center bg-black/60 hover:bg-black/50 transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50"
+              >
+                <div className="w-16 h-16 sm:w-20 sm:h-20 bg-indigo-600 rounded-full flex items-center justify-center hover:bg-indigo-500 transition-colors">
+                  <svg className="w-8 h-8 sm:w-10 sm:h-10 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                </div>
+              </button>
+            )}
+          </div>
+
+          {status === 'playing' && categoryChannels.length > 1 && (
+            <p className="mt-2 sm:mt-3 text-slate-500 text-xs sm:text-sm">Use ↑ / ↓ arrows or the buttons to change channels</p>
+          )}
+
+          <div className="mt-3 sm:mt-4 text-center">
+            {status === 'loading' && (
+              <div className="flex items-center justify-center gap-2 text-slate-400">
+                <Loader2 className="w-5 h-5 animate-spin" />
+                <span className="text-sm sm:text-base">Loading channel...</span>
+              </div>
+            )}
+            {status === 'ready-click-to-play' && (
+              <p className="text-slate-400 text-sm sm:text-base">Click play to start</p>
+            )}
+            {status === 'playing' && (
+              <p className="text-green-400 text-sm sm:text-base">Playing</p>
+            )}
+            {status === 'error' && (
+              <p className="text-red-400 text-sm sm:text-base">{errorMsg}</p>
+            )}
+          </div>
+        </div>
+
+        {/* Channel List - Mobile: below video, Desktop: beside video */}
         {isSidebarOpen && categoryChannels.length > 0 && (
-          <aside className="w-full md:w-72 flex-shrink-0 border-t md:border-t-0 md:border-r border-slate-800 bg-slate-900/50 overflow-y-auto max-h-48 md:max-h-none">
+          <aside className="w-full md:w-72 flex-shrink-0 border-t md:border-t-0 md:border-r border-slate-800 bg-slate-900/50 overflow-y-auto max-h-[40vh] md:max-h-none">
             <div className="p-3 sm:p-4 border-b border-slate-800">
               <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide truncate">{categoryName}</h2>
               <p className="text-xs text-slate-500 mt-0.5">{categoryChannels.length} channels</p>
@@ -406,51 +452,6 @@ export default function Watch() {
             </div>
           </aside>
         )}
-
-        <div className="flex-1 flex flex-col items-center overflow-y-auto p-2 sm:p-4">
-          <div className="relative w-full bg-black rounded-lg overflow-hidden aspect-video">
-            <video
-              ref={videoRef}
-              controls
-              playsInline
-              className="w-full h-full object-contain"
-            />
-            {status === 'ready-click-to-play' && (
-              <button
-                onClick={handlePlayClick}
-                className="absolute inset-0 flex items-center justify-center bg-black/60 hover:bg-black/50 transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50"
-              >
-                <div className="w-16 h-16 sm:w-20 sm:h-20 bg-indigo-600 rounded-full flex items-center justify-center hover:bg-indigo-500 transition-colors">
-                  <svg className="w-8 h-8 sm:w-10 sm:h-10 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                </div>
-              </button>
-            )}
-          </div>
-
-          {status === 'playing' && categoryChannels.length > 1 && (
-            <p className="mt-2 sm:mt-3 text-slate-500 text-xs sm:text-sm">Use ↑ / ↓ arrows or the buttons to change channels</p>
-          )}
-
-          <div className="mt-3 sm:mt-4 text-center">
-            {status === 'loading' && (
-              <div className="flex items-center justify-center gap-2 text-slate-400">
-                <Loader2 className="w-5 h-5 animate-spin" />
-                <span className="text-sm sm:text-base">Loading channel...</span>
-              </div>
-            )}
-            {status === 'ready-click-to-play' && (
-              <p className="text-slate-400 text-sm sm:text-base">Click play to start</p>
-            )}
-            {status === 'playing' && (
-              <p className="text-green-400 text-sm sm:text-base">Playing</p>
-            )}
-            {status === 'error' && (
-              <p className="text-red-400 text-sm sm:text-base">{errorMsg}</p>
-            )}
-          </div>
-        </div>
       </div>
     </div>
   )
