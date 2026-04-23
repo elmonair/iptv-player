@@ -7,6 +7,7 @@ import LiveTV from './pages/LiveTV'
 import Movies from './pages/Movies'
 import Series from './pages/Series'
 import TestPlayer from './pages/TestPlayer'
+import Watch from './pages/Watch'
 import AppLayout from './components/AppLayout'
 import { usePlaylistStore } from './stores/playlistStore'
 
@@ -58,6 +59,7 @@ function AppContent() {
         <Route path="/movies" element={<Movies />} />
         <Route path="/series" element={<Series />} />
       </Route>
+      <Route path="/watch/:channelId" element={<Watch />} />
       <Route path="/test-player" element={<TestPlayer />} />
     </Routes>
   )
