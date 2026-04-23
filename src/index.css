@@ -1,3 +1,21 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+/* Custom scrollbar for channel list */
+.channel-list-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.channel-list-scroll::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+.channel-list-scroll::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+
+.channel-list-scroll::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}

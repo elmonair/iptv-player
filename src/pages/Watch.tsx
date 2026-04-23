@@ -420,7 +420,7 @@ export default function Watch() {
               <p className="text-xs text-slate-500 mt-0.5">{categoryChannels.length} channels</p>
             </div>
             {/* Channel List - ONLY this scrolls */}
-            <div className="flex-1 overflow-y-auto">
+            <div className="flex-1 overflow-y-auto channel-list-scroll">
               <div className="flex flex-col gap-1 p-2">
                 {categoryChannels.map((chan) => {
                   const isActive = chan.id === currentChanId
