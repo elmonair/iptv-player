@@ -353,7 +353,7 @@ export default function Watch() {
           </aside>
         )}
 
-        <div className="flex-1 flex flex-col items-center justify-center p-4 overflow-y-auto relative">
+        <div className="flex-1 flex flex-col items-center overflow-hidden p-4">
           <div className="relative w-full max-w-6xl flex-shrink-0">
             <video
               ref={videoRef}
