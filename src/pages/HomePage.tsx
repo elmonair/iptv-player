@@ -3,15 +3,23 @@ import { useNavigate } from 'react-router-dom'
 import { Film, Tv, Clapperboard, Settings, User, Info, Plus, RefreshCw, Trash2, CheckCircle } from 'lucide-react'
 import { TopNavBar } from '../components/TopNavBar'
 import { AddPlaylistModal } from '../components/AddPlaylistModal'
+import { EditPlaylistModal } from '../components/EditPlaylistModal'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../lib/db'
+import type { XtreamSource } from '../stores/playlistStore'
 
 export default function HomePage() {
   const navigate = useNavigate()
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
-  const activeSource = getActiveSource()
+  const setActiveSource = usePlaylistStore((state) => state.setActiveSource)
+  const removeSource = usePlaylistStore((state) => state.removeSource)
+  const storeSources = usePlaylistStore((state) => state.sources)
+  const loadSourcesFromDb = usePlaylistStore((state) => state.loadSourcesFromDb)
   const [showAddPlaylist, setShowAddPlaylist] = useState(false)
+  const [editingSource, setEditingSource] = useState<XtreamSource | null>(null)
+
+  const activeSource = getActiveSource()
 
   const counts = useLiveQuery(
     async () => {
@@ -25,6 +33,17 @@ export default function HomePage() {
     },
     [activeSource],
   )
+
+  const handleEditSource = async (id: string) => {
+    const src = storeSources.find(s => s.id === id && s.type === 'xtream')
+    if (!src) {
+      await loadSourcesFromDb()
+    }
+    const updatedSrc = usePlaylistStore.getState().sources.find(s => s.id === id && s.type === 'xtream')
+    if (updatedSrc) {
+      setEditingSource(updatedSrc as XtreamSource)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-slate-900">
@@ -95,12 +114,12 @@ export default function HomePage() {
             <QuickActionButton
               icon={<Film size={24} />}
               label="Movies"
-              onClick={() => navigate('/movies')}
+              onClick={() => navigate('/live?tab=movies')}
             />
             <QuickActionButton
               icon={<Clapperboard size={24} />}
               label="Series"
-              onClick={() => navigate('/series')}
+              onClick={() => navigate('/live?tab=series')}
             />
             <QuickActionButton
               icon={<Settings size={24} />}
@@ -134,15 +153,21 @@ export default function HomePage() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {/* Active Playlist Card */}
-            <PlaylistCard
-              name={activeSource?.name || 'No Playlist'}
-              type={activeSource?.type === 'xtream' ? 'Xtream Codes' : 'M3U URL'}
-              isActive
-              onEdit={() => {}}
-              onDelete={() => {}}
-              onResync={() => navigate('/loading')}
-            />
+            {storeSources.map((source) => {
+              const isXtream = source.type === 'xtream'
+              return (
+                <PlaylistCard
+                  key={source.id}
+                  name={source.name}
+                  type={isXtream ? 'Xtream Codes' : 'M3U URL'}
+                  isActive={source.id === activeSource?.id}
+                  onEdit={() => isXtream && handleEditSource(source.id)}
+                  onDelete={() => removeSource(source.id)}
+                  onActivate={() => setActiveSource(source.id)}
+                  onResync={() => navigate('/loading')}
+                />
+              )
+            })}
           </div>
         </div>
       </main>
@@ -151,6 +176,14 @@ export default function HomePage() {
         <AddPlaylistModal
           onClose={() => setShowAddPlaylist(false)}
           onSuccess={() => navigate('/loading')}
+        />
+      )}
+
+      {editingSource && (
+        <EditPlaylistModal
+          source={editingSource}
+          onClose={() => setEditingSource(null)}
+          onSuccess={() => {}}
         />
       )}
     </div>
@@ -181,10 +214,11 @@ type PlaylistCardProps = {
   isActive?: boolean
   onEdit: () => void
   onDelete: () => void
+  onActivate: () => void
   onResync: () => void
 }
 
-function PlaylistCard({ name, type, isActive, onEdit, onDelete, onResync }: PlaylistCardProps) {
+function PlaylistCard({ name, type, isActive, onEdit, onDelete, onActivate, onResync }: PlaylistCardProps) {
   return (
     <div className={`bg-slate-800 rounded-xl p-5 border ${isActive ? 'border-yellow-500' : 'border-slate-700'}`}>
       <div className="flex items-start justify-between mb-3">
@@ -199,6 +233,14 @@ function PlaylistCard({ name, type, isActive, onEdit, onDelete, onResync }: Play
         )}
       </div>
       <div className="flex items-center gap-2">
+        {!isActive && (
+          <button
+            onClick={onActivate}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+          >
+            Activate
+          </button>
+        )}
         <button
           onClick={onResync}
           className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"

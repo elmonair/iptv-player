@@ -33,14 +33,19 @@ interface PlaylistStore {
   loaded: boolean
   lastChannelId: string | null
   selectedCategoryId: string | null
+  selectedMovieCategoryId: string | null
+  selectedSeriesCategoryId: string | null
   membershipExpDate: number | null
 
   loadSourcesFromDb: () => Promise<void>
   addSource: (source: M3UUrlSourceInput | XtreamSourceInput) => Promise<string>
+  updateSource: (id: string, updates: Partial<XtreamSourceInput>) => Promise<void>
   removeSource: (id: string) => Promise<void>
   setActiveSource: (id: string) => void
   setLastChannelId: (id: string | null) => void
   setSelectedCategoryId: (id: string | null) => void
+  setSelectedMovieCategoryId: (id: string | null) => void
+  setSelectedSeriesCategoryId: (id: string | null) => void
   getActiveSource: () => PlaylistSource | undefined
   clearAllData: () => Promise<void>
   setMembershipExpDate: (expDate: number | null) => void
@@ -52,6 +57,8 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
   loaded: false,
   lastChannelId: null,
   selectedCategoryId: null,
+  selectedMovieCategoryId: null,
+  selectedSeriesCategoryId: null,
   membershipExpDate: null,
 
   loadSourcesFromDb: async () => {
@@ -132,6 +139,33 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
     return id
   },
 
+  updateSource: async (id, updates) => {
+    const source = get().sources.find((s) => s.id === id)
+    if (!source || source.type !== 'xtream') return
+
+    const record: Partial<PlaylistSourceRecord> = {}
+
+    if (updates.name !== undefined) record.name = updates.name
+    if (updates.serverUrl !== undefined) record.serverUrlEncrypted = await encryptString(updates.serverUrl)
+    if (updates.username !== undefined) record.usernameEncrypted = await encryptString(updates.username)
+    if (updates.password !== undefined) record.passwordEncrypted = await encryptString(updates.password)
+
+    await db.sources.update(id, record)
+
+    set((state) => ({
+      sources: state.sources.map((s) => {
+        if (s.id !== id) return s
+        return {
+          ...s,
+          name: updates.name ?? s.name,
+          serverUrl: updates.serverUrl ?? (s as XtreamSource).serverUrl,
+          username: updates.username ?? (s as XtreamSource).username,
+          password: updates.password ?? (s as XtreamSource).password,
+        }
+      }),
+    }))
+  },
+
   removeSource: async (id) => {
     await db.sources.delete(id)
     set((state) => ({
@@ -150,6 +184,14 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
 
   setSelectedCategoryId: (id) => {
     set({ selectedCategoryId: id })
+  },
+
+  setSelectedMovieCategoryId: (id) => {
+    set({ selectedMovieCategoryId: id })
+  },
+
+  setSelectedSeriesCategoryId: (id) => {
+    set({ selectedSeriesCategoryId: id })
   },
 
   getActiveSource: () => {

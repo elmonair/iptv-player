@@ -1,14 +1,14 @@
 import { useEffect, useRef } from 'react'
-import { BrowserRouter, Routes, Route, useNavigate, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom'
 import Onboarding from './pages/Onboarding'
 import Loading from './pages/Loading'
 import HomePage from './pages/HomePage'
 import ChannelCategories from './pages/ChannelCategories'
 import CategoryChannelList from './pages/CategoryChannelList'
-import Movies from './pages/Movies'
-import Series from './pages/Series'
 import TestPlayer from './pages/TestPlayer'
 import Watch from './pages/Watch'
+import SeriesDetail from './pages/SeriesDetail'
+import SearchPage from './pages/SearchPage'
 import { usePlaylistStore } from './stores/playlistStore'
 
 function AppContent() {
@@ -56,9 +56,12 @@ function AppContent() {
       <Route path="/home" element={<HomePage />} />
       <Route path="/live" element={<ChannelCategories />} />
       <Route path="/live/:categoryId" element={<CategoryChannelList />} />
-      <Route path="/movies" element={<Movies />} />
-      <Route path="/series" element={<Series />} />
+      <Route path="/movies" element={<Navigate to="/live?tab=movies" replace />} />
+      <Route path="/series" element={<Navigate to="/live?tab=series" replace />} />
+      <Route path="/series/:seriesId" element={<SeriesDetail />} />
       <Route path="/watch/:channelId" element={<Watch />} />
+      <Route path="/watch/episode/:episodeId" element={<Watch />} />
+      <Route path="/search" element={<SearchPage />} />
       <Route path="/test-player" element={<TestPlayer />} />
     </Routes>
   )
