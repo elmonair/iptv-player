@@ -54,6 +54,7 @@ export type MovieRecord = {
   director?: string
   releaseDate?: string
   durationSeconds?: number
+  subtitleUrl?: string
 }
 
 export type SeriesRecord = {

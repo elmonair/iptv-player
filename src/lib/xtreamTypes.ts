@@ -114,6 +114,8 @@ export type XtreamVodInfo = {
     languages: string
     tmdb_id: string
     poster_path: string
+    subtitles?: string
+    [key: string]: unknown
   }
   movie_data?: {
     stream_id: number
@@ -133,7 +135,16 @@ export type XtreamVodInfo = {
     duration: string
     backdrop_path: string
     movie_image: string
+    subtitles?: string
+    [key: string]: unknown
   }
+  subtitles?: Array<{
+    url?: string
+    language?: string
+    label?: string
+    [key: string]: unknown
+  }>
+  [key: string]: unknown
 }
 
 export type XtreamSeriesInfo = {

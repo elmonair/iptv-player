@@ -3,6 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart, Volume2, Subtitles, Check, X } from 'lucide-react'
 import mpegts from 'mpegts.js'
 import Hls from 'hls.js'
+import { loadSubtitleAsTrack, isSubtitlesUrl } from '../lib/subtitles'
 import { db } from '../lib/db'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
@@ -763,7 +764,7 @@ export default function Watch() {
     }
   }, [stopProgressTracking])
 
-  // Detect audio and subtitle tracks (native + HLS)
+  // Detect audio and subtitle tracks (native + HLS + delayed checks)
   useEffect(() => {
     const videoEl = videoRef.current
     if (!videoEl) {
@@ -772,16 +773,40 @@ export default function Watch() {
     }
 
     console.log('[Tracks] Setting up track detection, currentType:', currentType)
+    console.log('[Tracks] streamUrl:', videoEl.src?.substring(0, 80))
+
+    const logNativeTracks = () => {
+      console.log('[Native] textTracks length:', videoEl.textTracks?.length)
+      console.log('[Native] audioTracks length:', videoEl.audioTracks?.length)
+      Array.from(videoEl.textTracks || []).forEach((track, i) => {
+        console.log('[Native] textTrack', i, {
+          label: track.label,
+          language: track.language,
+          kind: track.kind,
+          mode: track.mode,
+          cues: track.cues?.length
+        })
+      })
+      Array.from(videoEl.audioTracks || []).forEach((track, i) => {
+        console.log('[Native] audioTrack', i, {
+          label: track.label,
+          language: track.language,
+          enabled: track.enabled
+        })
+      })
+    }
 
     const updateTracks = () => {
       const audioList: Array<{ id: number; label: string; language?: string; enabled: boolean }> = []
       const subtitleList: Array<{ id: number; label: string; language?: string; enabled: boolean }> = []
 
+      logNativeTracks()
+
       // 1. HLS.js tracks (priority if hls instance exists)
       const hls = hlsRef.current
       if (hls) {
-        console.log('[HLS] audioTracks:', hls.audioTracks)
-        console.log('[HLS] subtitleTracks:', hls.subtitleTracks)
+        console.log('[HLS] audioTracks:', hls.audioTracks?.length, hls.audioTracks?.map(t => ({ name: t.name, lang: t.lang })))
+        console.log('[HLS] subtitleTracks:', hls.subtitleTracks?.length, hls.subtitleTracks?.map(t => ({ name: t.name, lang: t.lang })))
         console.log('[HLS] audioTrack:', hls.audioTrack)
         console.log('[HLS] subtitleTrack:', hls.subtitleTrack)
 
@@ -846,11 +871,18 @@ export default function Watch() {
         hasAudioTracks: audioList.length > 0,
         hasTextTracks: subtitleList.length > 0,
         currentType,
-        hlsActive: !!hls
+        hlsActive: !!hls,
+        nativeAudioTracks: videoEl.audioTracks?.length || 0,
+        nativeTextTracks: videoEl.textTracks?.length || 0
       })
     }
 
     updateTracks()
+
+    // Delayed checks — tracks may appear after manifest loads
+    const delay1 = setTimeout(updateTracks, 1000)
+    const delay2 = setTimeout(updateTracks, 3000)
+    const delay3 = setTimeout(updateTracks, 5000)
 
     const handleNativeAudioTrackChange = () => updateTracks()
     const handleNativeTextTrackChange = () => updateTracks()
@@ -858,6 +890,7 @@ export default function Watch() {
     // Listen for native track events
     videoEl.addEventListener('loadedmetadata', updateTracks)
     videoEl.addEventListener('loadeddata', updateTracks)
+    videoEl.addEventListener('canplay', updateTracks)
     if (videoEl.audioTracks) {
       videoEl.audioTracks.addEventListener('change', handleNativeAudioTrackChange)
       videoEl.audioTracks.addEventListener('addtrack', handleNativeAudioTrackChange)
@@ -876,11 +909,17 @@ export default function Watch() {
       hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, updateTracks)
       hls.on(Hls.Events.AUDIO_TRACK_SWITCHING, updateTracks)
       hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, updateTracks)
+      hls.on(Hls.Events.LEVEL_LOADED, updateTracks)
+      hls.on(Hls.Events.SUBTITLE_TRACK_LOADED, updateTracks)
     }
 
     return () => {
+      clearTimeout(delay1)
+      clearTimeout(delay2)
+      clearTimeout(delay3)
       videoEl.removeEventListener('loadedmetadata', updateTracks)
       videoEl.removeEventListener('loadeddata', updateTracks)
+      videoEl.removeEventListener('canplay', updateTracks)
       if (videoEl.audioTracks) {
         videoEl.audioTracks.removeEventListener('change', handleNativeAudioTrackChange)
         videoEl.audioTracks.removeEventListener('addtrack', handleNativeAudioTrackChange)
@@ -896,6 +935,8 @@ export default function Watch() {
         hls.off(Hls.Events.SUBTITLE_TRACKS_UPDATED, updateTracks)
         hls.off(Hls.Events.AUDIO_TRACK_SWITCHING, updateTracks)
         hls.off(Hls.Events.SUBTITLE_TRACK_SWITCH, updateTracks)
+        hls.off(Hls.Events.LEVEL_LOADED, updateTracks)
+        hls.off(Hls.Events.SUBTITLE_TRACK_LOADED, updateTracks)
       }
     }
   }, [currentItemId, currentType])
