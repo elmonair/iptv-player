@@ -378,7 +378,23 @@ export default function ChannelCategories() {
     if (safePreview.length > 0) {
       saveItems(safePreview)
     }
-    navigate(`/watch/${encodeURIComponent(item.id)}`)
+    const scrollY = scrollRef.current?.scrollTop || 0
+    console.log('[ChannelCategories] Navigating to channel:', {
+      channelId: item.id,
+      channelName: safeName(item),
+      from: '/live?tab=channels',
+      tab: 'channels',
+      categoryId: selectedCategoryId,
+      scrollY
+    })
+    navigate(`/watch/${encodeURIComponent(item.id)}`, {
+      state: {
+        from: '/live?tab=channels',
+        tab: 'channels',
+        categoryId: selectedCategoryId,
+        scrollY
+      }
+    })
   }
 
   if (!activeSource) {

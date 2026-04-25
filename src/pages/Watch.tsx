@@ -118,8 +118,8 @@ export default function Watch() {
       if (!videoRef.current || !activeSource) return
       const currentTime = videoRef.current.currentTime
       const duration = videoRef.current.duration
+      console.log('[Watch] Saving progress:', { itemType, itemId, sourceId: activeSource.id, currentTime, duration })
       updateWatchProgress(itemType, itemId, activeSource.id, currentTime, duration)
-      console.log('[Watch] Saved progress:', itemType, itemId, 'position:', currentTime)
     }
 
     progressIntervalRef.current = setInterval(saveProgress, 10000)
@@ -149,15 +149,40 @@ export default function Watch() {
   }
 
   const handleUpBack = useCallback(() => {
+    console.log('[Watch] handleUpBack called:', { currentType, locationState: location.state })
+
     if (currentType === 'episode' && location.state && (location.state as EpisodeInfo).seriesId) {
       navigate(`/series/${encodeURIComponent((location.state as EpisodeInfo).seriesId)}`, { replace: true })
       return
     }
 
     if (currentType === 'channel') {
-      const returnCategoryId = (location.state as { returnCategoryId?: string } | null)?.returnCategoryId
-      const categoryId = returnCategoryId || currentCategoryId || '__all__'
-      navigate(`/live/${encodeURIComponent(categoryId)}`, { replace: true })
+      // Check if we have navigation state from the channel grid
+      const navState = location.state as { from?: string; tab?: string; categoryId?: string; scrollY?: number } | null
+      console.log('[Watch] Channel back navigation state:', navState)
+
+      if (navState?.from && navState?.tab === 'channels') {
+        // Return to the grid page with restored state
+        const params = new URLSearchParams()
+        params.set('tab', 'channels')
+        if (navState.categoryId && navState.categoryId !== 'all') {
+          params.set('category', navState.categoryId)
+        }
+        navigate(`/live?${params.toString()}`, { replace: true })
+        console.log('[Watch] Navigating back to grid:', `/live?${params.toString()}`)
+        return
+      }
+
+      // Fallback: use browseStore's exitPlayer
+      const ctx = useBrowseStore.getState().exitPlayer()
+      if (ctx && ctx.section === 'live') {
+        navigate('/live?tab=channels', { replace: true })
+        console.log('[Watch] Using browseStore fallback to /live?tab=channels')
+        return
+      }
+
+      navigate('/live?tab=channels', { replace: true })
+      console.log('[Watch] Default fallback to /live?tab=channels')
       return
     }
 
@@ -170,7 +195,7 @@ export default function Watch() {
     }
 
     navigate('/live')
-  }, [currentCategoryId, currentType, location.state, navigate])
+  }, [currentType, location.state, navigate])
 
   const buildStreamUrl = (source: { serverUrl: string; username: string; password: string }, item: WatchableItem): string => {
     if (!item) return ''
