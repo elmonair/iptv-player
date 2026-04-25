@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { Film, Tv, Clapperboard, Settings, User, Info, Plus, RefreshCw, Trash2, CheckCircle, Clock, Play } from 'lucide-react'
 import { TopNavBar } from '../components/TopNavBar'
 import { AddPlaylistModal } from '../components/AddPlaylistModal'
@@ -259,10 +259,11 @@ type ContinueWatchingCardProps = {
     position: number
     duration: number | null
   }
-  navigate: (path: string) => void
+  navigate: (path: string, state?: object) => void
 }
 
 function ContinueWatchingCard({ item, navigate }: ContinueWatchingCardProps) {
+  const location = useLocation()
   const content = useLiveQuery(
     async () => {
       if (item.itemType === 'channel') {
@@ -284,16 +285,31 @@ function ContinueWatchingCard({ item, navigate }: ContinueWatchingCardProps) {
   if (!content) return null
 
   const handleClick = () => {
+    const from = location.pathname + location.search
+
+    console.log('[ContinueWatchingCard] Open item:', {
+      current: from,
+      itemType: item.itemType,
+      itemId: item.itemId
+    })
+
     if (item.itemType === 'channel') {
-      navigate(`/watch/channel/${encodeURIComponent(item.itemId)}`)
+      navigate(`/watch/channel/${encodeURIComponent(item.itemId)}`, {
+        state: { from, tab: 'channels', scrollY: 0 }
+      })
     } else if (item.itemType === 'movie') {
-      navigate(`/watch/movie/${encodeURIComponent(item.itemId)}`)
+      navigate(`/watch/movie/${encodeURIComponent(item.itemId)}`, {
+        state: { from, tab: 'movies', scrollY: 0 }
+      })
     } else if (item.itemType === 'episode' && 'episode' in content) {
       const { episode, series } = content
       const seriesId = series?.externalId || series?.id
       navigate(`/watch/episode/${episode.id}`, {
         state: {
+          from,
+          tab: 'series',
           seriesId,
+          seasonId: episode.seasonNumber,
           seriesName: series?.name || 'Unknown',
           seasonNumber: episode.seasonNumber,
           episodeNumber: episode.episodeNumber,

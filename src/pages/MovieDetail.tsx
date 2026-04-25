@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { Loader2, Film, Star, Calendar, Clock, Globe, Play, Heart, ChevronLeft, Info } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
@@ -25,6 +25,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 export default function MovieDetail() {
   const { movieId } = useParams<{ movieId: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
   const activeSource = getActiveSource()
   const browseMovies = useBrowseStore((state) => state.state.movies)
@@ -137,7 +138,28 @@ export default function MovieDetail() {
     navigate(categoryId ? `/live?tab=movies&category=${encodeURIComponent(categoryId)}` : '/live?tab=movies', { replace: true })
   }
 
-  const handlePlay = () => movie && navigate(`/watch/${encodeURIComponent(movie.id)}`)
+  const handlePlay = () => {
+    if (!movie) return
+
+    const from = location.pathname + location.search
+    const categoryId = browseMovies.selectedCategoryId
+
+    console.log('[MovieDetail] Open movie:', {
+      current: from,
+      movieId: movie.id,
+      movieName: movie.name,
+      state: { from, tab: 'movies', categoryId }
+    })
+
+    navigate(`/watch/${encodeURIComponent(movie.id)}`, {
+      state: {
+        from,
+        tab: 'movies',
+        categoryId,
+        scrollY: window.scrollY
+      }
+    })
+  }
 
   const handleFavoriteClick = () => {
     if (!movie || !activeSource) return

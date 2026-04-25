@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { Search, ArrowLeft, Loader2, Tv2, Film, Monitor, X } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
@@ -88,6 +88,7 @@ function highlightMatch(text: string, query: string): React.ReactNode {
 
 export default function SearchPage() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult>({ channels: [], movies: [], series: [] })
   const [loading, setLoading] = useState(false)
@@ -176,11 +177,33 @@ export default function SearchPage() {
   }
 
   const handleChannelClick = (channel: ChannelRecord) => {
-    navigate(`/watch/${encodeURIComponent(channel.id)}`)
+    const from = location.pathname + location.search
+
+    console.log('[SearchPage] Open channel:', {
+      current: from,
+      channelId: channel.id,
+      channelName: channel.name,
+      state: { from, tab: 'channels' }
+    })
+
+    navigate(`/watch/${encodeURIComponent(channel.id)}`, {
+      state: { from, tab: 'channels', scrollY: 0 }
+    })
   }
 
   const handleMovieClick = (movie: MovieRecord) => {
-    navigate(`/watch/${encodeURIComponent(movie.id)}`)
+    const from = location.pathname + location.search
+
+    console.log('[SearchPage] Open movie:', {
+      current: from,
+      movieId: movie.id,
+      movieName: movie.name,
+      state: { from, tab: 'movies' }
+    })
+
+    navigate(`/watch/${encodeURIComponent(movie.id)}`, {
+      state: { from, tab: 'movies', scrollY: 0 }
+    })
   }
 
   const handleSeriesClick = (series: SeriesRecord) => {

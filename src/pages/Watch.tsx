@@ -50,6 +50,7 @@ export default function Watch() {
   const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const activeItemRef = useRef<HTMLButtonElement>(null)
+  const hasResumedRef = useRef(false)
 
   const [status, setStatus] = useState<WatchStatus>('loading')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
@@ -125,6 +126,22 @@ export default function Watch() {
     progressIntervalRef.current = setInterval(saveProgress, 10000)
   }, [activeSource, updateWatchProgress])
 
+  const handleLoadedMetadata = useCallback((savedProgress?: { position: number } | null) => {
+    if (hasResumedRef.current) return
+    if (!videoRef.current) return
+
+    const videoEl = videoRef.current
+    const saved = savedProgress?.position || 0
+    const duration = videoEl.duration
+
+    if (saved > 5 && Number.isFinite(duration) && saved < duration * 0.9) {
+      videoEl.currentTime = saved
+      console.log('[Watch] Resumed once from position:', saved)
+    }
+
+    hasResumedRef.current = true
+  }, [])
+
   const stopProgressTracking = useCallback(() => {
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current)
@@ -149,53 +166,64 @@ export default function Watch() {
   }
 
   const handleUpBack = useCallback(() => {
-    console.log('[Watch] handleUpBack called:', { currentType, locationState: location.state })
+    const navState = location.state as { from?: string; tab?: string; categoryId?: string; scrollY?: number; seriesId?: string } | null
 
-    if (currentType === 'episode' && location.state && (location.state as EpisodeInfo).seriesId) {
-      navigate(`/series/${encodeURIComponent((location.state as EpisodeInfo).seriesId)}`, { replace: true })
+    console.log('[Watch Back]', {
+      locationState: location.state,
+      itemType: currentType,
+      itemId: currentItemId,
+      from: navState?.from
+    })
+
+    // First priority: use the 'from' state if it exists
+    if (navState?.from) {
+      console.log('[Watch Back] Using from state:', navState.from)
+      navigate(navState.from, { replace: true })
       return
     }
 
-    if (currentType === 'channel') {
-      // Check if we have navigation state from the channel grid
-      const navState = location.state as { from?: string; tab?: string; categoryId?: string; scrollY?: number } | null
-      console.log('[Watch] Channel back navigation state:', navState)
+    // Second priority: handle specific item types
+    if (currentType === 'movie') {
+      navigate('/live?tab=movies', { replace: true })
+      console.log('[Watch Back] Fallback to /live?tab=movies')
+      return
+    }
 
-      if (navState?.from && navState?.tab === 'channels') {
-        // Return to the grid page with restored state
-        const params = new URLSearchParams()
-        params.set('tab', 'channels')
-        if (navState.categoryId && navState.categoryId !== 'all') {
-          params.set('category', navState.categoryId)
-        }
-        navigate(`/live?${params.toString()}`, { replace: true })
-        console.log('[Watch] Navigating back to grid:', `/live?${params.toString()}`)
-        return
+    if (currentType === 'episode' || currentType === 'series') {
+      const seriesId = navState?.seriesId
+      if (seriesId) {
+        navigate(`/series/${encodeURIComponent(seriesId)}`, { replace: true })
+        console.log('[Watch Back] Navigate to series detail:', seriesId)
+      } else {
+        navigate('/live?tab=series', { replace: true })
+        console.log('[Watch Back] Fallback to /live?tab=series')
       }
+      return
+    }
 
-      // Fallback: use browseStore's exitPlayer
+    // Third priority: use browseStore for channels
+    if (currentType === 'channel') {
       const ctx = useBrowseStore.getState().exitPlayer()
       if (ctx && ctx.section === 'live') {
-        navigate('/live?tab=channels', { replace: true })
-        console.log('[Watch] Using browseStore fallback to /live?tab=channels')
+        const categoryId = ctx.selectedCategoryId
+        const params = new URLSearchParams()
+        params.set('tab', 'channels')
+        if (categoryId && categoryId !== 'all') {
+          params.set('category', categoryId)
+        }
+        navigate(`/live?${params.toString()}`, { replace: true })
+        console.log('[Watch Back] Using browseStore to navigate:', `/live?${params.toString()}`)
         return
       }
 
       navigate('/live?tab=channels', { replace: true })
-      console.log('[Watch] Default fallback to /live?tab=channels')
+      console.log('[Watch Back] Default fallback to /live?tab=channels')
       return
     }
 
-    // Keep Live TV and Movies on the previous stable browseStore return behavior.
-    const ctx = useBrowseStore.getState().exitPlayer()
-    if (ctx) {
-      const tab = ctx.section === 'live' ? 'channels' : ctx.section === 'movies' ? 'movies' : 'series'
-      navigate(`/live?tab=${tab}`)
-      return
-    }
-
+    // Final fallback
     navigate('/live')
-  }, [currentType, location.state, navigate])
+  }, [currentType, currentItemId, location.state, navigate])
 
   const buildStreamUrl = (source: { serverUrl: string; username: string; password: string }, item: WatchableItem): string => {
     if (!item) return ''
@@ -270,6 +298,9 @@ export default function Watch() {
       console.log('[Watch] Found saved progress for episode:', savedProgress.position)
     }
 
+    videoEl.onloadedmetadata = () => {
+      handleLoadedMetadata(savedProgress)
+    }
     videoEl.oncanplay = () => {
       if (videoEl.videoWidth && videoEl.videoHeight) {
         setVideoInfo({
@@ -277,10 +308,6 @@ export default function Watch() {
           height: videoEl.videoHeight,
           fps: 0,
         })
-      }
-      if (savedProgress && savedProgress.position > 0 && videoEl.duration > savedProgress.position) {
-        videoEl.currentTime = savedProgress.position
-        console.log('[Watch] Resumed from position:', savedProgress.position)
       }
     }
     videoEl.onplaying = () => {
@@ -310,7 +337,7 @@ export default function Watch() {
         setErrorMsg(err instanceof Error ? err.message : String(err))
       }
     }
-  }, [destroyPlayer, getWatchHistory, startProgressTracking])
+  }, [destroyPlayer, getWatchHistory, startProgressTracking, handleLoadedMetadata])
 
   const zapTo = useCallback(async (targetItemId: string) => {
     if (!targetItemId || !videoRef.current) return
@@ -473,6 +500,9 @@ export default function Watch() {
         console.log('[Watch] Found saved progress for movie:', savedProgress.position)
       }
 
+      videoEl.onloadedmetadata = () => {
+        handleLoadedMetadata(savedProgress)
+      }
       videoEl.oncanplay = () => {
         if (videoEl.videoWidth && videoEl.videoHeight) {
           setVideoInfo({
@@ -480,10 +510,6 @@ export default function Watch() {
             height: videoEl.videoHeight,
             fps: 0,
           })
-        }
-        if (savedProgress && savedProgress.position > 0 && videoEl.duration > savedProgress.position) {
-          videoEl.currentTime = savedProgress.position
-          console.log('[Watch] Resumed from position:', savedProgress.position)
         }
       }
       videoEl.onplaying = () => {
@@ -514,7 +540,7 @@ export default function Watch() {
         }
       }
     }
-  }, [destroyPlayer, getWatchHistory, startProgressTracking, setLastChannelId])
+  }, [destroyPlayer, getWatchHistory, startProgressTracking, handleLoadedMetadata, setLastChannelId])
 
   const handleFullscreenToggle = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -553,6 +579,10 @@ export default function Watch() {
     console.log('[Watch] Next item:', { nextIndex, item: getItemName(nextItem) })
     zapTo(nextItem.data.id)
   }, [zapTo])
+
+  useEffect(() => {
+    hasResumedRef.current = false
+  }, [currentItemId])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {

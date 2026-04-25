@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { Loader2, Star, Calendar, Clock, Globe, Play, Heart, ChevronLeft, Info, Monitor } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
@@ -23,6 +23,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 export default function SeriesDetail() {
   const { seriesId } = useParams<{ seriesId: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
   const activeSource = getActiveSource()
   const browseSeries = useBrowseStore((state) => state.state.series)
@@ -204,9 +205,22 @@ export default function SeriesDetail() {
     const episodeId = episode.id
     setSelectedEpisode(selectedSeason, String(episodeId))
 
+    const from = location.pathname + location.search
+
+    console.log('[SeriesDetail] Open episode:', {
+      current: from,
+      episodeId,
+      seriesId,
+      seriesName: seriesInfo?.info?.name || series.name,
+      state: { from, tab: 'series', seriesId, seasonId: selectedSeason }
+    })
+
     navigate(`/watch/episode/${episodeId}`, {
       state: {
+        from,
+        tab: 'series',
         seriesId,
+        seasonId: selectedSeason,
         seriesName: seriesInfo?.info?.name || series.name,
         seasonNumber: selectedSeason,
         episodeNumber: episode.episode_num,
