@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart } from 'lucide-react'
+import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart, Volume2, Subtitles, Check, X } from 'lucide-react'
 import mpegts from 'mpegts.js'
 import { db } from '../lib/db'
 import { usePlaylistStore } from '../stores/playlistStore'
@@ -64,6 +64,12 @@ export default function Watch() {
   const [currentCategoryId, setCurrentCategoryId] = useState<string | null>(null)
   const [currentType, setCurrentType] = useState<'channel' | 'movie' | 'episode'>('channel')
   const [activeSource, setActiveSource] = useState<Awaited<ReturnType<typeof getActiveSource>> | null>(null)
+  const [audioTracks, setAudioTracks] = useState<Array<{ id: number; label: string; language?: string; enabled: boolean }>>([])
+  const [subtitleTracks, setSubtitleTracks] = useState<Array<{ id: number; label: string; language?: string; enabled: boolean }>>([])
+  const [showAudioMenu, setShowAudioMenu] = useState(false)
+  const [showSubtitleMenu, setShowSubtitleMenu] = useState(false)
+  const audioMenuRef = useRef<HTMLDivElement>(null)
+  const subtitleMenuRef = useRef<HTMLDivElement>(null)
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
@@ -224,6 +230,62 @@ export default function Watch() {
     // Final fallback
     navigate('/live')
   }, [currentType, currentItemId, location.state, navigate])
+
+  const handleAudioTrackSelect = (index: number) => {
+    if (!videoRef.current || !videoRef.current.audioTracks) return
+    const tracks = videoRef.current.audioTracks
+    for (let i = 0; i < tracks.length; i++) {
+      tracks[i].enabled = (i === index)
+    }
+    setAudioTracks(prev => prev.map((track, i) => ({ ...track, enabled: i === index })))
+    console.log('[Watch] Selected audio track:', index)
+  }
+
+  const handleSubtitleTrackSelect = (index: number) => {
+    if (!videoRef.current || !videoRef.current.textTracks) return
+    const tracks = videoRef.current.textTracks
+    for (let i = 0; i < tracks.length; i++) {
+      tracks[i].mode = (i === index) ? 'showing' : 'hidden'
+    }
+    setSubtitleTracks(prev => prev.map((track, i) => ({ ...track, enabled: i === index })))
+    console.log('[Watch] Selected subtitle track:', index)
+  }
+
+  const handleToggleSubtitles = () => {
+    if (!videoRef.current || !videoRef.current.textTracks) return
+    const tracks = videoRef.current.textTracks
+    let hasShowing = false
+    for (let i = 0; i < tracks.length; i++) {
+      if (tracks[i].mode === 'showing') {
+        tracks[i].mode = 'hidden'
+        hasShowing = true
+      }
+    }
+    if (!hasShowing && tracks.length > 0) {
+      tracks[0].mode = 'showing'
+    }
+    const updated = Array.from(tracks).map((track, i) => ({
+      id: i,
+      label: track.label || `Subtitle ${i + 1}`,
+      language: track.language,
+      enabled: track.mode === 'showing'
+    }))
+    setSubtitleTracks(updated)
+  }
+
+  // Close dropdowns when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (audioMenuRef.current && !audioMenuRef.current.contains(e.target as Node)) {
+        setShowAudioMenu(false)
+      }
+      if (subtitleMenuRef.current && !subtitleMenuRef.current.contains(e.target as Node)) {
+        setShowSubtitleMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
 
   const buildStreamUrl = (source: { serverUrl: string; username: string; password: string }, item: WatchableItem): string => {
     if (!item) return ''
@@ -634,6 +696,68 @@ export default function Watch() {
     }
   }, [stopProgressTracking])
 
+  // Detect audio and subtitle tracks
+  useEffect(() => {
+    const videoEl = videoRef.current
+    if (!videoEl) return
+
+    const updateTracks = () => {
+      // Get audio tracks
+      const audioList: Array<{ id: number; label: string; language?: string; enabled: boolean }> = []
+      for (let i = 0; i < (videoEl.audioTracks?.length || 0); i++) {
+        const track = videoEl.audioTracks![i]
+        audioList.push({
+          id: i,
+          label: track.label || `Audio ${i + 1}`,
+          language: track.language,
+          enabled: track.enabled
+        })
+      }
+      setAudioTracks(audioList)
+
+      // Get subtitle tracks
+      const subtitleList: Array<{ id: number; label: string; language?: string; enabled: boolean }> = []
+      for (let i = 0; i < (videoEl.textTracks?.length || 0); i++) {
+        const track = videoEl.textTracks![i]
+        subtitleList.push({
+          id: i,
+          label: track.label || `Subtitle ${i + 1}`,
+          language: track.language,
+          enabled: track.mode === 'showing'
+        })
+      }
+      setSubtitleTracks(subtitleList)
+
+      console.log('[Watch] Audio tracks:', audioList)
+      console.log('[Watch] Subtitle tracks:', subtitleList)
+    }
+
+    updateTracks()
+
+    const handleAudioTrackChange = () => updateTracks()
+    const handleTextTrackChange = () => updateTracks()
+
+    if (videoEl.audioTracks) {
+      videoEl.audioTracks.addEventListener('change', handleAudioTrackChange)
+    }
+    if (videoEl.textTracks) {
+      videoEl.textTracks.addEventListener('addtrack', handleTextTrackChange)
+      videoEl.textTracks.addEventListener('removetrack', handleTextTrackChange)
+      videoEl.textTracks.addEventListener('change', handleTextTrackChange)
+    }
+
+    return () => {
+      if (videoEl.audioTracks) {
+        videoEl.audioTracks.removeEventListener('change', handleAudioTrackChange)
+      }
+      if (videoEl.textTracks) {
+        videoEl.textTracks.removeEventListener('addtrack', handleTextTrackChange)
+        videoEl.textTracks.removeEventListener('removetrack', handleTextTrackChange)
+        videoEl.textTracks.removeEventListener('change', handleTextTrackChange)
+      }
+    }
+  }, [currentItemId])
+
   useEffect(() => {
     if (activeItemRef.current) {
       activeItemRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -806,8 +930,97 @@ export default function Watch() {
                   </div>
                 </button>
               )}
-            </div>
-          </div>
+             </div>
+
+             {/* Audio/Subtitle Control Bar */}
+             {(currentType === 'movie' || currentType === 'episode') && (
+               <div className="flex-shrink-0 px-4 py-2 bg-slate-900 border-t border-slate-800">
+                 <div className="flex items-center justify-center gap-4">
+                   {/* Audio Selection */}
+                   <div className="relative">
+                     <button
+                       onClick={() => setShowAudioMenu(!showAudioMenu)}
+                       className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[36px]"
+                       aria-label="Select audio track"
+                     >
+                       <Volume2 size={18} className="text-slate-400" />
+                       <span className="text-sm text-slate-300">
+                         {audioTracks.length > 0 && audioTracks.find(t => t.enabled)?.label || 'Audio'}
+                       </span>
+                     </button>
+                     {showAudioMenu && audioTracks.length > 0 && (
+                       <div
+                         ref={audioMenuRef}
+                         className="absolute top-full left-0 mt-1 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 overflow-hidden"
+                       >
+                         {audioTracks.map((track, index) => (
+                           <button
+                             key={track.id}
+                             onClick={() => { handleAudioTrackSelect(index); setShowAudioMenu(false); }}
+                             className="w-full px-3 py-2 flex items-center justify-between hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
+                           >
+                             <div className="flex flex-col items-start">
+                               <span className="text-sm text-slate-300">{track.label}</span>
+                               {track.language && (
+                                 <span className="text-xs text-slate-500">{track.language}</span>
+                               )}
+                             </div>
+                             {track.enabled && <Check size={16} className="text-green-500" />}
+                           </button>
+                         ))}
+                       </div>
+                     )}
+                   </div>
+
+                   {/* Subtitle Selection */}
+                   <div className="relative">
+                     <button
+                       onClick={() => setShowSubtitleMenu(!showSubtitleMenu)}
+                       className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[36px]"
+                       aria-label="Select subtitle track"
+                     >
+                       <Subtitles size={18} className="text-slate-400" />
+                       <span className="text-sm text-slate-300">
+                         {subtitleTracks.length > 0 && subtitleTracks.find(t => t.enabled)?.label || 'Subtitles'}
+                       </span>
+                       {subtitleTracks.some(t => t.enabled) && (
+                         <div className="w-2 h-2 bg-green-500 rounded-full" />
+                       )}
+                     </button>
+                     {showSubtitleMenu && (
+                       <div
+                         ref={subtitleMenuRef}
+                         className="absolute top-full left-0 mt-1 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 overflow-hidden"
+                       >
+                         <button
+                           onClick={() => { handleToggleSubtitles(); setShowSubtitleMenu(false); }}
+                           className="w-full px-3 py-2 flex items-center justify-between hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50 border-b border-slate-700"
+                         >
+                           <span className="text-sm text-slate-300">Off</span>
+                           {!subtitleTracks.some(t => t.enabled) && <Check size={16} className="text-green-500" />}
+                         </button>
+                         {subtitleTracks.map((track, index) => (
+                           <button
+                             key={track.id}
+                             onClick={() => { handleSubtitleTrackSelect(index); setShowSubtitleMenu(false); }}
+                             className="w-full px-3 py-2 flex items-center justify-between hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
+                           >
+                             <div className="flex flex-col items-start">
+                               <span className="text-sm text-slate-300">{track.label}</span>
+                               {track.language && (
+                                 <span className="text-xs text-slate-500">{track.language}</span>
+                               )}
+                             </div>
+                             {track.enabled && <Check size={16} className="text-green-500" />}
+                           </button>
+                         ))}
+                       </div>
+                     )}
+                   </div>
+                 </div>
+               </div>
+             )}
+           </div>
 
           {/* Status Bar - Fixed height 40px */}
           <div className="flex-shrink-0 h-10 px-4 flex items-center justify-between bg-slate-900 border-t border-slate-800">
