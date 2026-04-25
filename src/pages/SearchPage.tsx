@@ -5,6 +5,7 @@ import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
 import { db } from '../lib/db'
 import { TopNavBar } from '../components/TopNavBar'
+import { formatRating } from '../lib/metadata'
 import type { ChannelRecord, MovieRecord, SeriesRecord } from '../lib/db'
 
 type SearchResult = {
@@ -482,7 +483,7 @@ function SeriesResultCard({ series, onClick, highlight }: SeriesResultCardProps)
   const name = getItemName(series)
   const initial = (name.charAt(0) || '?').toUpperCase()
   const genre = safeString(series.genre)
-  const rating = typeof series.rating === 'number' ? series.rating : null
+  const rating = formatRating(series.rating)
 
   return (
     <button
@@ -503,9 +504,9 @@ function SeriesResultCard({ series, onClick, highlight }: SeriesResultCardProps)
             <span className="text-white text-2xl font-bold">{initial}</span>
           </div>
         )}
-        {rating !== null && rating > 0 && (
+        {rating && rating !== 'N/A' && (
           <div className="absolute top-2 right-2 bg-yellow-500 text-black text-xs font-bold px-1.5 py-0.5 rounded">
-            {rating.toFixed(1)}
+            {rating}
           </div>
         )}
       </div>

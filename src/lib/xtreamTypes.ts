@@ -95,6 +95,47 @@ export type XtreamSeries = {
   category_id: string
 }
 
+export type XtreamVodInfo = {
+  info: {
+    name: string
+    plot: string
+    description: string
+    genre: string
+    cast: string
+    director: string
+    releasedate: string
+    duration: string
+    rating: string
+    rating_5based: number
+    backdrop_path: string
+    movie_image: string
+    youtube_trailer: string
+    country: string
+    languages: string
+    tmdb_id: string
+    poster_path: string
+  }
+  movie_data?: {
+    stream_id: number
+    name: string
+    added: number
+    category_id: string
+    container_extension: string
+    custom_sid: string
+    direct_source: string
+    rating: string
+    rating_5based: number
+    plot: string
+    cast: string
+    director: string
+    genre: string
+    releasedate: string
+    duration: string
+    backdrop_path: string
+    movie_image: string
+  }
+}
+
 export type XtreamSeriesInfo = {
   info: XtreamSeries
   episodes: Record<

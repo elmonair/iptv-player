@@ -1,43 +1,81 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, Loader2, Play, Calendar, Clock, ChevronDown, ChevronRight } from 'lucide-react'
+import { Loader2, Star, Calendar, Clock, Globe, Play, Heart, ChevronLeft, Info, Monitor } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
+import { useFavoritesStore } from '../stores/favoritesStore'
+import { useLiveQuery } from 'dexie-react-hooks'
+import { db } from '../lib/db'
 import { TopNavBar } from '../components/TopNavBar'
+import { parseTitle, formatRating, formatYear, formatDuration, formatReleaseDate } from '../lib/metadata'
 import { getSeriesInfo } from '../lib/xtream'
 import type { XtreamSeriesInfo } from '../lib/xtreamTypes'
 
-type SeasonData = {
-  seasonNumber: number
-  episodes: XtreamSeriesInfo['episodes'][string]
+function InfoRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs text-slate-500">{label}</p>
+      <p className="text-sm text-white truncate" title={value}>{value}</p>
+    </div>
+  )
 }
 
 export default function SeriesDetail() {
   const { seriesId } = useParams<{ seriesId: string }>()
   const navigate = useNavigate()
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
-
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [seriesInfo, setSeriesInfo] = useState<XtreamSeriesInfo | null>(null)
-  const [expandedSeasons, setExpandedSeasons] = useState<Set<number>>(new Set([1]))
-  const episodeScrollRef = useRef<HTMLDivElement>(null)
-
   const activeSource = getActiveSource()
   const browseSeries = useBrowseStore((state) => state.state.series)
   const setSelectedEpisode = useBrowseStore((state) => state.setSelectedEpisode)
-  const saveEpisodeListScrollTop = useBrowseStore((state) => state.saveEpisodeListScrollTop)
+  const toggleFavorite = useFavoritesStore((state) => state.toggleFavorite)
+  const isFavorite = useFavoritesStore((state) => state.isFavorite)
+
+  const [loading, setLoading] = useState(true)
+  const [imageError, setImageError] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [seriesInfo, setSeriesInfo] = useState<XtreamSeriesInfo | null>(null)
+  const [selectedSeason, setSelectedSeason] = useState<number>(1)
+
+  const series = useLiveQuery(
+    async () => {
+      if (!seriesId) return null
+      const allSeries = await db.series.toArray()
+      return allSeries.find(s =>
+        String(s.externalId) === String(seriesId) ||
+        String(s.id) === String(seriesId)
+      ) || null
+    },
+    [seriesId],
+  )
+
+  const categoryName = useLiveQuery(
+    async () => {
+      if (!series?.categoryId) return ''
+      const cat = await db.categories.where('id').equals(series.categoryId).first()
+      return cat?.name || ''
+    },
+    [series?.categoryId],
+  )
+
+  const parsedMetadata = useMemo(() => series ? parseTitle(series.name) : null, [series?.name])
+
+  console.log('[SeriesDetail] params', { seriesId })
+  console.log('[SeriesDetail] loading', loading, 'seriesIsUndefined', series === undefined, 'series', series)
 
   useEffect(() => {
-    if (!seriesId || !activeSource || activeSource.type !== 'xtream') {
-      setError('Invalid series or no active playlist')
-      setLoading(false)
-      return
-    }
+    setLoading(true)
+    setError(null)
+    setSeriesInfo(null)
+  }, [seriesId])
 
-    const fetchSeriesInfo = async () => {
-      setLoading(true)
-      setError(null)
+  useEffect(() => {
+    async function fetchSeriesMetadata() {
+      if (!seriesId || !activeSource || activeSource.type !== 'xtream') {
+        setError('Invalid series or no active playlist')
+        setLoading(false)
+        return
+      }
+
       try {
         console.log('[SeriesDetail] Fetching series info:', seriesId)
         const info = await getSeriesInfo(activeSource.serverUrl, {
@@ -46,6 +84,14 @@ export default function SeriesDetail() {
         }, seriesId)
         setSeriesInfo(info)
         console.log('[SeriesDetail] Series info loaded:', info.info.name)
+
+        const seasonNumbers = Object.keys(info.episodes).map(Number).sort((a, b) => a - b)
+        if (seasonNumbers.length > 0) {
+          const initialSeason = browseSeries.selectedSeasonNumber && seasonNumbers.includes(browseSeries.selectedSeasonNumber)
+            ? browseSeries.selectedSeasonNumber
+            : seasonNumbers[0]
+          setSelectedSeason(initialSeason)
+        }
       } catch (err) {
         console.error('[SeriesDetail] Failed to load series:', err)
         setError(err instanceof Error ? err.message : 'Failed to load series')
@@ -54,125 +100,98 @@ export default function SeriesDetail() {
       }
     }
 
-    fetchSeriesInfo()
-  }, [seriesId, activeSource])
+    fetchSeriesMetadata()
+  }, [seriesId, activeSource, browseSeries.selectedSeasonNumber])
 
-  useEffect(() => {
-    if (browseSeries.selectedSeasonNumber) {
-      setExpandedSeasons((prev) => new Set(prev).add(browseSeries.selectedSeasonNumber as number))
-    }
-  }, [browseSeries.selectedSeasonNumber])
+  const { seasons, currentEpisodes, totalEpisodes } = useMemo(() => {
+    if (!seriesInfo) return { seasons: [], currentEpisodes: [], totalEpisodes: 0 }
 
-  useEffect(() => {
-    if (episodeScrollRef.current && browseSeries.episodeListScrollTop > 0) {
-      episodeScrollRef.current.scrollTop = browseSeries.episodeListScrollTop
+    const seasonNumbers = Object.keys(seriesInfo.episodes)
+      .map(Number)
+      .sort((a, b) => a - b)
+
+    const episodes = seriesInfo.episodes[selectedSeason] || []
+    const total = seasonNumbers.reduce((acc, s) => acc + (seriesInfo.episodes[s]?.length || 0), 0)
+
+    return {
+      seasons: seasonNumbers,
+      currentEpisodes: episodes,
+      totalEpisodes: total,
     }
-  }, [browseSeries.episodeListScrollTop, seriesInfo])
+  }, [seriesInfo, selectedSeason])
 
   const handleBack = () => {
     const categoryId = browseSeries.selectedCategoryId
     navigate(categoryId ? `/live?tab=series&category=${encodeURIComponent(categoryId)}` : '/live?tab=series', { replace: true })
   }
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' || e.key === 'Backspace') {
-        e.preventDefault()
-        handleBack()
+  const handlePlayFirst = () => {
+    if (currentEpisodes.length > 0) {
+      handleEpisodeClick(currentEpisodes[0])
+    }
+  }
+
+  const handleFavoriteClick = () => {
+    if (!series || !activeSource) return
+    toggleFavorite('series', series.id, activeSource.id)
+  }
+
+  const handleEpisodeFavoriteClick = async (e: React.MouseEvent, episode: XtreamSeriesInfo['episodes'][string][number]) => {
+    e.stopPropagation()
+    if (!activeSource || !seriesId) return
+
+    const episodeId = String(episode.id)
+    const favorite = isFavorite('episode', episodeId)
+
+    if (favorite) {
+      const existing = await db.favorites
+        .where('sourceId')
+        .equals(activeSource.id)
+        .and(f => f.itemType === 'episode' && f.itemId === episodeId)
+        .first()
+      if (existing) {
+        await db.favorites.delete(existing.id)
+        console.log('[SeriesDetail] Removed episode favorite:', episodeId)
       }
+    } else {
+      const { generateId } = await import('../lib/uuid')
+      const newFavorite = {
+        id: generateId(),
+        itemType: 'episode' as const,
+        itemId: episodeId,
+        sourceId: activeSource.id,
+        addedAt: Date.now(),
+      }
+      await db.favorites.add(newFavorite)
+      console.log('[SeriesDetail] Added episode favorite:', episodeId)
     }
 
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [browseSeries.selectedCategoryId])
-
-  if (!activeSource || activeSource.type !== 'xtream') {
-    return (
-      <div className="h-screen bg-slate-900 flex flex-col">
-        <TopNavBar />
-        <div className="flex-1 flex flex-col items-center justify-center">
-          <p className="text-slate-400 text-base mb-4">No active Xtream playlist</p>
-          <button
-            onClick={() => navigate('/live?tab=series')}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[44px]"
-          >
-            Go to Series
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  if (loading) {
-    return (
-      <div className="h-screen bg-slate-900 flex flex-col">
-        <TopNavBar />
-        <div className="flex-1 flex flex-col items-center justify-center">
-          <Loader2 className="w-8 h-8 text-indigo-500 animate-spin mb-4" />
-          <p className="text-slate-400 text-base">Loading series...</p>
-        </div>
-      </div>
-    )
-  }
-
-  if (error || !seriesInfo) {
-    return (
-      <div className="h-screen bg-slate-900 flex flex-col">
-        <TopNavBar />
-        <div className="flex-1 flex flex-col items-center justify-center p-4">
-          <p className="text-red-400 text-base mb-4">{error || 'Series not found'}</p>
-          <button
-            onClick={() => navigate('/live?tab=series')}
-            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[44px]"
-          >
-            Go to Series
-          </button>
-        </div>
-      </div>
-    )
-  }
-
-  const { info, episodes } = seriesInfo
-
-  const seasons: SeasonData[] = Object.entries(episodes)
-    .map(([seasonNum, eps]) => ({
-      seasonNumber: parseInt(seasonNum, 10),
-      episodes: eps,
-    }))
-    .sort((a, b) => a.seasonNumber - b.seasonNumber)
-
-  const toggleSeason = (seasonNum: number) => {
-    setExpandedSeasons((prev) => {
-      const next = new Set(prev)
-      if (next.has(seasonNum)) {
-        next.delete(seasonNum)
-      } else {
-        next.add(seasonNum)
-      }
-      return next
-    })
+    if (activeSource) {
+      const { loadFavorites } = useFavoritesStore.getState()
+      loadFavorites(activeSource.id).catch(console.error)
+    }
   }
 
   const handleEpisodeClick = (episode: XtreamSeriesInfo['episodes'][string][number]) => {
-    const seasonKey = Object.keys(episodes).find((s) => episodes[s]?.includes(episode))
-    const selectedSeason = seasonKey ? parseInt(seasonKey, 10) : 1
+    if (!seriesInfo || !activeSource || activeSource.type !== 'xtream') return
+
     console.log('[SeriesDetail] Episode clicked:', {
       episodeId: episode.id,
       episodeNum: episode.episode_num,
       title: episode.title,
-      containerExtension: episode.container_extension,
     })
 
-    const allEps: Array<{
+    const allEpisodes: Array<{
       id: number
       episode_num: number
       title: string
       container_extension: string
       seasonNumber: number
     }> = []
-    for (const [seasonNum, eps] of Object.entries(episodes)) {
+
+    for (const [seasonNum, eps] of Object.entries(seriesInfo.episodes)) {
       for (const ep of eps) {
-        allEps.push({
+        allEpisodes.push({
           id: ep.id,
           episode_num: ep.episode_num,
           title: ep.title,
@@ -183,203 +202,321 @@ export default function SeriesDetail() {
     }
 
     const episodeId = episode.id
-    const streamUrl = `${activeSource.serverUrl}/series/${activeSource.username}/${activeSource.password}/${episodeId}.${episode.container_extension}`
-    console.log('[SeriesDetail] Navigating to:', `/watch/episode/${episodeId}`)
-    console.log('[SeriesDetail] Stream URL:', streamUrl.replace(activeSource.password, '[PASS]'))
     setSelectedEpisode(selectedSeason, String(episodeId))
-    if (episodeScrollRef.current) {
-      saveEpisodeListScrollTop(episodeScrollRef.current.scrollTop)
-    }
 
     navigate(`/watch/episode/${episodeId}`, {
       state: {
         seriesId,
-        seriesName: info.name,
+        seriesName: seriesInfo?.info?.name || series.name,
         seasonNumber: selectedSeason,
         episodeNumber: episode.episode_num,
         episodeTitle: episode.title || `Episode ${episode.episode_num}`,
         containerExtension: episode.container_extension,
         streamId: episodeId,
-        allEpisodes: allEps,
+        allEpisodes,
         returnTo: `/series/${seriesId}`,
       },
     })
   }
 
-  const handleEpisodeKeyDown = (e: React.KeyboardEvent, episode: XtreamSeriesInfo['episodes'][string][number]) => {
-    if (e.key === 'Enter' || e.key === ' ') {
-      e.preventDefault()
-      handleEpisodeClick(episode)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' || e.key === 'Backspace') {
+        e.preventDefault()
+        handleBack()
+      }
     }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [browseSeries.selectedCategoryId])
+
+  if (!activeSource || activeSource.type !== 'xtream') {
+    return (
+      <div className="min-h-screen bg-slate-900">
+        <TopNavBar />
+        <div className="flex items-center justify-center h-[calc(100vh-64px)]">
+          <p className="text-slate-400">No active Xtream playlist</p>
+        </div>
+      </div>
+    )
   }
 
-  const formatDuration = (secs: number) => {
-    const mins = Math.floor(secs / 60)
-    return `${mins} min`
+  if (series === undefined || loading) {
+    return (
+      <div className="min-h-screen bg-slate-900">
+        <TopNavBar />
+        <div className="flex items-center justify-center h-[calc(100vh-64px)]">
+          <Loader2 className="w-8 h-8 text-violet-500 animate-spin" />
+        </div>
+      </div>
+    )
   }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-slate-900">
+        <TopNavBar />
+        <div className="flex flex-col items-center justify-center h-[calc(100vh-64px)] px-4">
+          <p className="text-red-400 text-base mb-4">{error || 'Failed to load series'}</p>
+          <button onClick={handleBack} className="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors">
+            Back to Series
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (!series) {
+    return (
+      <div className="min-h-screen bg-slate-900">
+        <TopNavBar />
+        <div className="flex flex-col items-center justify-center h-[calc(100vh-64px)] px-4">
+          <Monitor className="w-16 h-16 text-slate-600 mb-4" />
+          <p className="text-slate-400 text-center">Series not found</p>
+          <button onClick={handleBack} className="mt-4 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-white rounded-lg transition-colors">
+            Back to Series
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const info = seriesInfo?.info
+  const { cleanTitle, year, quality, language, provider } = parsedMetadata || { cleanTitle: series.name, year: null, quality: null, language: null, provider: null }
+  const displayYear = formatYear(info?.releaseDate || series.year, year)
+  const displayRating = formatRating(info?.rating_5based || series.rating)
+  const hasBackdrop = info?.backdrop_path || series.backdropUrl || series.logoUrl
+  const displayGenre = info?.genre || series.genre
+  const displayCast = info?.cast || series.cast
+  const displayDirector = info?.director || series.director
+  const displayDuration = info?.episode_run_time || formatDuration(currentEpisodes[0]?.info?.duration_secs)
+  const displayReleaseDate = formatReleaseDate(info?.releaseDate || series.releaseDate)
+  const betterBackdrop = info?.backdrop_path || series.backdropUrl || null
+  const betterPoster = info?.cover || info?.backdrop_path || series.logoUrl || null
+  const overview = info?.plot || series.plot || ''
 
   return (
-    <div className="h-screen bg-slate-900 flex flex-col overflow-hidden">
+    <div className="min-h-screen bg-slate-900">
       <TopNavBar />
 
-      {/* Content */}
-      <div className="flex-1 flex flex-col overflow-hidden min-h-0">
-        {/* Series Info Header - scrollable */}
-        <div className="flex-shrink-0 p-4 border-b border-slate-800">
-          {/* Back button row */}
-          <div className="flex items-center gap-3 mb-4">
+      <div className="relative">
+        {hasBackdrop && !imageError && (
+          <div className="absolute inset-0 z-0">
+            <img
+              src={betterBackdrop || series.backdropUrl || series.logoUrl}
+              alt=""
+              className="w-full h-full object-cover"
+              onError={() => setImageError(true)}
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/90 to-slate-900/60" />
+            <div className="absolute inset-0 bg-gradient-to-r from-slate-900 via-slate-900/80 to-transparent" />
+          </div>
+        )}
+
+        <div className="relative z-10">
+          <div className="px-4 sm:px-6 lg:px-8 pt-3 sm:pt-4">
             <button
               onClick={handleBack}
-              className="flex items-center gap-2 px-3 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[44px]"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition-colors"
             >
-              <ArrowLeft className="w-5 h-5" />
-              <span className="text-sm font-medium">Back</span>
+              <ChevronLeft className="w-4 h-4" />
+              Back
             </button>
           </div>
 
-          <div className="flex flex-col md:flex-row gap-4">
-            {/* Backdrop/Poster */}
-            <div className="w-full md:w-48 flex-shrink-0 aspect-video md:aspect-auto md:h-48 bg-slate-800 rounded-lg overflow-hidden">
-              {info.backdrop_path ? (
-                <img
-                  src={info.backdrop_path}
-                  alt={info.name}
-                  className="w-full h-full object-cover"
-                />
-              ) : info.cover ? (
-                <img
-                  src={info.cover}
-                  alt={info.name}
-                  className="w-full h-full object-cover"
-                />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center bg-slate-800">
-                  <span className="text-4xl font-bold text-slate-600">{info.name.charAt(0)}</span>
-                </div>
-              )}
-            </div>
-
-            {/* Info */}
-            <div className="flex-1 min-w-0">
-              <h1 className="text-xl font-semibold text-white mb-2">{info.name}</h1>
-              <div className="flex flex-wrap items-center gap-3 text-sm text-slate-400 mb-2">
-                {info.rating && (
-                  <span className="flex items-center gap-1">
-                    <span className="text-yellow-500">★</span> {info.rating}/10
-                  </span>
-                )}
-                {info.releaseDate && (
-                  <span className="flex items-center gap-1">
-                    <Calendar className="w-4 h-4" />
-                    {info.releaseDate}
-                  </span>
-                )}
-                {info.episode_run_time && (
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-4 h-4" />
-                    {info.episode_run_time}
-                  </span>
-                )}
-              </div>
-              {info.plot && (
-                <p className="text-slate-300 text-sm leading-relaxed line-clamp-2">{info.plot}</p>
-              )}
-              {info.cast && (
-                <div className="mt-2">
-                  <span className="text-slate-500 text-xs">Cast: </span>
-                  <span className="text-slate-400 text-xs">{info.cast}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Seasons & Episodes - scrollable */}
-        <div ref={episodeScrollRef} className="flex-1 overflow-y-auto p-4">
-          <h3 className="text-lg font-semibold text-white mb-3">
-            Episodes ({seasons.reduce((acc, s) => acc + s.episodes.length, 0)})
-          </h3>
-
-          <div className="space-y-2">
-            {seasons.map((season) => {
-              const isExpanded = expandedSeasons.has(season.seasonNumber)
-              return (
-                <div key={season.seasonNumber} className="bg-slate-800 rounded-lg overflow-hidden">
-                  {/* Season Header */}
-                  <button
-                    onClick={() => toggleSeason(season.seasonNumber)}
-                    className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[48px]"
-                  >
-                    <span className="text-white font-medium">
-                      Season {season.seasonNumber}
-                      <span className="text-slate-500 text-sm ml-2">({season.episodes.length} episodes)</span>
-                    </span>
-                    {isExpanded ? (
-                      <ChevronDown className="w-5 h-5 text-slate-400" />
-                    ) : (
-                      <ChevronRight className="w-5 h-5 text-slate-400" />
-                    )}
-                  </button>
-
-                  {/* Episodes */}
-                  {isExpanded && (
-                    <div className="border-t border-slate-700">
-                      {season.episodes.map((episode) => (
-                        (() => {
-                          const isFocused = browseSeries.focusedEpisodeId === String(episode.id)
-                          return (
-                        <div
-                          key={episode.id}
-                          role="button"
-                          tabIndex={0}
-                          onClick={() => handleEpisodeClick(episode)}
-                          onKeyDown={(e) => handleEpisodeKeyDown(e, episode)}
-                          className={`w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-slate-700/50 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 border-b border-slate-700/50 last:border-b-0 cursor-pointer ${isFocused ? 'bg-indigo-600/20 border-l-4 border-l-indigo-500' : ''}`}
-                        >
-                          {/* Episode Number */}
-                          <div className="w-8 h-8 bg-indigo-600 text-white rounded flex items-center justify-center flex-shrink-0">
-                            <span className="text-sm font-medium">{episode.episode_num}</span>
-                          </div>
-
-                          {/* Episode Info */}
-                          <div className="flex-1 min-w-0">
-                            <p className="text-white text-sm font-medium truncate">
-                              {episode.title || `Episode ${episode.episode_num}`}
-                            </p>
-                            {episode.info?.plot && (
-                              <p className="text-slate-500 text-xs mt-1 line-clamp-1">{episode.info.plot}</p>
-                            )}
-                          </div>
-
-                          {/* Duration & Play */}
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            {episode.info?.duration_secs && (
-                              <span className="text-slate-500 text-xs">
-                                {formatDuration(episode.info.duration_secs)}
-                              </span>
-                            )}
-                            <button
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleEpisodeClick(episode)
-                              }}
-                              className="w-8 h-8 bg-indigo-600 hover:bg-indigo-500 text-white rounded-full flex items-center justify-center transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-                              aria-label={`Play episode ${episode.episode_num}`}
-                            >
-                              <Play className="w-4 h-4 ml-0.5" />
-                            </button>
-                          </div>
-                        </div>
-                          )
-                        })()
-                      ))}
+          <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-5 lg:py-6">
+            <div className="flex flex-col md:flex-row gap-4 md:gap-6">
+              <div className="flex-shrink-0 mx-auto md:mx-0">
+                <div className="w-[170px] sm:w-[190px] md:w-[200px] lg:w-[230px] aspect-[2/3] rounded-lg overflow-hidden shadow-2xl border border-slate-700/50 bg-slate-800">
+                  {betterPoster ? (
+                    <img src={betterPoster} alt={cleanTitle} className="w-full h-full object-cover" loading="lazy" />
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
+                      <Monitor className="w-10 h-10 text-slate-600" />
                     </div>
                   )}
                 </div>
-              )
-            })}
+              </div>
+
+              <div className="flex-1 min-w-0 flex flex-col justify-end">
+                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-2 sm:mb-3 leading-tight">
+                  {cleanTitle}
+                </h1>
+
+                <div className="flex flex-wrap items-center gap-2 mb-3 sm:mb-4">
+                  {displayRating && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs font-medium rounded">
+                      <Star className="w-3 h-3" />
+                      {displayRating}
+                    </span>
+                  )}
+                  {displayYear && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-700/80 text-slate-300 text-xs font-medium rounded">
+                      <Calendar className="w-3 h-3" />
+                      {displayYear}
+                    </span>
+                  )}
+                  {displayDuration && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-slate-700/80 text-slate-300 text-xs font-medium rounded">
+                      <Clock className="w-3 h-3" />
+                      {displayDuration}
+                    </span>
+                  )}
+                  {quality && (
+                    <span className="px-2 py-0.5 bg-violet-500/20 text-violet-300 text-xs font-medium rounded">{quality}</span>
+                  )}
+                  {language && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-500/20 text-blue-300 text-xs font-medium rounded">
+                      <Globe className="w-3 h-3" />
+                      {language}
+                    </span>
+                  )}
+                  {provider && (
+                    <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 text-xs font-medium rounded">{provider}</span>
+                  )}
+                  {categoryName && (
+                    <span className="px-2 py-0.5 bg-slate-700/80 text-slate-300 text-xs font-medium rounded truncate max-w-[120px]">{categoryName}</span>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-5">
+                  <button
+                    onClick={handlePlayFirst}
+                    className="inline-flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2 sm:py-2.5 bg-white text-slate-900 rounded-md font-semibold text-sm hover:bg-slate-200 transition-colors min-h-[44px]"
+                  >
+                    <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
+                    <span>Play First</span>
+                  </button>
+                  <button
+                    onClick={handleFavoriteClick}
+                    className="inline-flex items-center justify-center w-10 h-10 sm:w-11 sm:h-11 bg-white/10 hover:bg-white/20 text-white rounded-md transition-colors backdrop-blur-sm"
+                    aria-label={series && activeSource && isFavorite('series', series.id) ? 'Remove from favorites' : 'Add to favorites'}
+                  >
+                    <Heart className={`w-4 h-4 sm:w-5 sm:h-5 transition-colors ${series && activeSource && isFavorite('series', series.id) ? 'text-red-500 fill-red-500' : ''}`} />
+                  </button>
+                </div>
+
+                <div className="max-w-2xl mb-3 sm:mb-5">
+                  <h2 className="sr-only">Overview</h2>
+                  {overview ? (
+                    <p className="text-slate-300 text-sm leading-relaxed line-clamp-3 sm:line-clamp-none">{overview}</p>
+                  ) : (
+                    <p className="text-slate-500 text-sm italic">No description is available from this playlist.</p>
+                  )}
+                </div>
+
+                {displayCast && (
+                  <div className="mb-3 sm:mb-4">
+                    <span className="text-xs text-slate-500">Cast: </span>
+                    <span className="text-slate-400 text-xs line-clamp-2">{displayCast}</span>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                  {displayDirector && <span>Director: <span className="text-slate-400">{displayDirector}</span></span>}
+                  {displayGenre && <span>Genre: <span className="text-slate-400">{displayGenre}</span></span>}
+                  {displayReleaseDate && <span>Release: <span className="text-slate-400">{displayReleaseDate}</span></span>}
+                  <span>Seasons: <span className="text-slate-400">{seasons.length}</span></span>
+                  <span>Episodes: <span className="text-slate-400">{totalEpisodes}</span></span>
+                </div>
+              </div>
+
+              <aside className="hidden lg:block w-56 flex-shrink-0">
+                <div className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/50 rounded-xl p-4 space-y-3">
+                  <div className="flex items-center gap-2 text-slate-400 text-xs uppercase tracking-wider">
+                    <Info className="w-3.5 h-3.5" />
+                    <span>Info</span>
+                  </div>
+                  {categoryName && <InfoRow label="Category" value={categoryName} />}
+                  {displayYear && <InfoRow label="Year" value={displayYear} />}
+                  {displayRating && <InfoRow label="Rating" value={`${displayRating}/10`} />}
+                  <InfoRow label="Type" value="Series" />
+                  {quality && <InfoRow label="Quality" value={quality} />}
+                  {language && <InfoRow label="Language" value={language} />}
+                  {provider && <InfoRow label="Source" value={provider} />}
+                  <InfoRow label="Seasons" value={String(seasons.length)} />
+                  <InfoRow label="Episodes" value={String(totalEpisodes)} />
+                </div>
+              </aside>
+            </div>
           </div>
         </div>
+      </div>
+
+      <div className="px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-8 space-y-5 sm:space-y-6">
+        {seasons.length > 0 && (
+          <div>
+            <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+              {seasons.map((season) => {
+                const isSelected = season === selectedSeason
+                return (
+                  <button
+                    key={season}
+                    onClick={() => setSelectedSeason(season)}
+                    className={`flex-shrink-0 whitespace-nowrap px-4 py-2 rounded-lg text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500/50 ${
+                      isSelected
+                        ? 'bg-violet-600 text-white border border-violet-400'
+                        : 'bg-slate-800 text-slate-300 hover:bg-slate-700 border border-transparent'
+                    }`}
+                  >
+                    Season {season}
+                  </button>
+                )
+              })}
+            </div>
+
+            {currentEpisodes.length > 0 ? (
+              <div className="space-y-2">
+                {currentEpisodes.map((episode) => {
+                  const duration = episode.info?.duration_secs
+                  const formattedDuration = duration ? `${Math.floor(duration / 60)} min` : null
+                  const episodeId = String(episode.id)
+                  const favorite = activeSource ? isFavorite('episode', episodeId) : false
+
+                  return (
+                    <button
+                      key={episode.id}
+                      onClick={() => handleEpisodeClick(episode)}
+                      className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 rounded-lg transition-colors text-left focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                    >
+                      <div className="flex-shrink-0 w-10 h-10 bg-slate-700 text-white rounded-lg flex items-center justify-center">
+                        <span className="text-sm font-semibold">{episode.episode_num}</span>
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white text-sm font-medium line-clamp-1">
+                          {episode.title || `Episode ${episode.episode_num}`}
+                        </p>
+                        {formattedDuration && (
+                          <p className="text-slate-500 text-xs mt-0.5">{formattedDuration}</p>
+                        )}
+                      </div>
+                      <button
+                        onClick={(e) => handleEpisodeFavoriteClick(e, episode)}
+                        className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-slate-400 hover:text-red-500 transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                        aria-label={favorite ? 'Remove from favorites' : 'Add to favorites'}
+                      >
+                        <Heart className={`w-4 h-4 transition-colors ${favorite ? 'text-red-500 fill-red-500' : ''}`} />
+                      </button>
+                      <div className="flex-shrink-0 w-9 h-9 bg-violet-600 hover:bg-violet-500 text-white rounded-full flex items-center justify-center transition-colors">
+                        <Play className="w-4 h-4 ml-0.5 fill-current" />
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="text-center py-8">
+                <p className="text-slate-400">No episodes in this season</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {totalEpisodes === 0 && (
+          <div className="text-center py-12">
+            <p className="text-slate-400">No episodes found in this series</p>
+          </div>
+        )}
       </div>
     </div>
   )

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film } from 'lucide-react'
+import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart } from 'lucide-react'
 import mpegts from 'mpegts.js'
 import { db } from '../lib/db'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
+import { useFavoritesStore } from '../stores/favoritesStore'
 import { getSeriesInfo } from '../lib/xtream'
 import type { ChannelRecord, MovieRecord } from '../lib/db'
 
@@ -57,9 +58,28 @@ export default function Watch() {
   const [categoryName, setCategoryName] = useState<string>('')
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [currentItemId, setCurrentItemId] = useState<string>('')
+  const [currentCategoryId, setCurrentCategoryId] = useState<string | null>(null)
   const [currentType, setCurrentType] = useState<'channel' | 'movie' | 'episode'>('channel')
+  const [activeSource, setActiveSource] = useState<Awaited<ReturnType<typeof getActiveSource>> | null>(null)
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
+  const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
+  const toggleFavorite = useFavoritesStore((state) => state.toggleFavorite)
+  const isFavorite = useFavoritesStore((state) => state.isFavorite)
+
+  const handleFavoriteToggle = async () => {
+    if (!activeSource || !currentItemId || !currentType) return
+
+    const itemTypeMap: Record<typeof currentType, 'channel' | 'movie' | 'episode'> = {
+      channel: 'channel',
+      movie: 'movie',
+      episode: 'episode',
+    }
+
+    const itemType = itemTypeMap[currentType]
+    await toggleFavorite(itemType, currentItemId, activeSource.id)
+    console.log('[Watch] Toggled favorite:', itemType, currentItemId)
+  }
 
   const destroyPlayer = useCallback(() => {
     const player = playerRef.current
@@ -102,6 +122,13 @@ export default function Watch() {
       return
     }
 
+    if (currentType === 'channel') {
+      const returnCategoryId = (location.state as { returnCategoryId?: string } | null)?.returnCategoryId
+      const categoryId = returnCategoryId || currentCategoryId || '__all__'
+      navigate(`/live/${encodeURIComponent(categoryId)}`, { replace: true })
+      return
+    }
+
     // Keep Live TV and Movies on the previous stable browseStore return behavior.
     const ctx = useBrowseStore.getState().exitPlayer()
     if (ctx) {
@@ -111,7 +138,7 @@ export default function Watch() {
     }
 
     navigate('/live')
-  }, [currentType, location.state, navigate])
+  }, [currentCategoryId, currentType, location.state, navigate])
 
   const buildStreamUrl = (source: { serverUrl: string; username: string; password: string }, item: WatchableItem): string => {
     if (!item) return ''
@@ -131,7 +158,7 @@ export default function Watch() {
   const playEpisode = useCallback(async (episodeInfo: EpisodeInfo) => {
     if (!videoRef.current) return
 
-    const source = usePlaylistStore.getState().getActiveSource()
+    const source = activeSource
     if (!source || source.type !== 'xtream') return
 
     destroyPlayer()
@@ -218,7 +245,7 @@ export default function Watch() {
   const zapTo = useCallback(async (targetItemId: string) => {
     if (!targetItemId || !videoRef.current) return
 
-    const source = usePlaylistStore.getState().getActiveSource()
+    const source = activeSource
     if (!source || source.type !== 'xtream') return
 
     destroyPlayer()
@@ -251,15 +278,19 @@ export default function Watch() {
     setItemName(getItemName(item))
     setCurrentItemId(item.data.id)
     setCurrentType(item.type)
+    setCurrentCategoryId(item.data.categoryId)
     setStatus('loading')
     setVideoInfo(null)
 
     const allItems = allItemsRef.current
     const categoryItms = allItems.filter((i) => i && i.type === item.type && i.data.categoryId === item.data.categoryId)
-    categoryItemsRef.current = categoryItms
+    const sidebarItems = item.type === 'movie'
+      ? categoryItms.filter((i) => i && i.data.id !== item.data.id)
+      : categoryItms
+    categoryItemsRef.current = sidebarItems
     const catIdx = categoryItms.findIndex((i) => i && i.data.id === item.data.id)
     categoryIndexRef.current = catIdx >= 0 ? catIdx : 0
-    setCategoryItems(categoryItms)
+    setCategoryItems(sidebarItems)
 
     try {
       const cat = await db.categories.where('id').equals(item.data.categoryId).first()
@@ -496,7 +527,8 @@ export default function Watch() {
     }
 
     const init = async () => {
-      const source = usePlaylistStore.getState().getActiveSource()
+      const source = getActiveSource()
+      setActiveSource(source)
       if (!source || source.type !== 'xtream') {
         console.log('[Watch] No active Xtream source, redirecting')
         navigate('/home')
@@ -565,12 +597,12 @@ export default function Watch() {
   }, [channelId, episodeId, navigate, zapTo, playEpisode, destroyPlayer, location])
 
   return (
-    <div className="fixed inset-0 flex flex-col bg-slate-900">
-      {/* Top Navigation Bar */}
-      <header className="flex-shrink-0 h-14 sm:h-16 flex items-center gap-2 sm:gap-4 px-2 sm:px-4 border-b border-slate-800 bg-slate-900">
+    <div className="h-[100dvh] overflow-hidden bg-slate-950 flex flex-col">
+      {/* Top Navigation Bar - Fixed height 56px */}
+      <header className="flex-shrink-0 h-14 flex items-center gap-2 sm:gap-4 px-2 sm:px-4 border-b border-slate-800 bg-slate-900">
         <button
           onClick={handleUpBack}
-          className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50 min-h-[44px]"
+          className="flex items-center gap-1 sm:gap-2 px-2 sm:px-4 py-2 text-slate-300 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[44px]"
         >
           <ArrowLeft className="w-4 h-4 sm:w-5 sm:h-5" />
           <span className="text-sm sm:text-base font-medium hidden sm:inline">Back</span>
@@ -587,28 +619,35 @@ export default function Watch() {
         <div className="flex items-center gap-1 sm:gap-2">
           <button
             onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50"
+            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             aria-label={isSidebarOpen ? 'Hide channel list' : 'Show channel list'}
           >
             {isSidebarOpen ? <Tv2 className="w-5 h-5" /> : <List className="w-5 h-5" />}
           </button>
           <button
             onClick={handlePrevChannel}
-            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50"
+            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             aria-label="Previous channel"
           >
             <ChevronLeft className="w-5 h-5" />
           </button>
           <button
+            onClick={handleFavoriteToggle}
+            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-red-500 hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+            aria-label="Toggle favorite"
+          >
+            <Heart className={`w-5 h-5 ${activeSource && currentItemId && isFavorite(currentType === 'channel' ? 'channel' : currentType === 'movie' ? 'movie' : 'episode', currentItemId) ? 'fill-current text-red-500' : ''}`} />
+          </button>
+          <button
             onClick={handleNextChannel}
-            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50"
+            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             aria-label="Next channel"
           >
             <ChevronRight className="w-5 h-5" />
           </button>
           <button
             onClick={handleFullscreenToggle}
-            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50"
+            className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             aria-label={isFullscreen ? 'Exit fullscreen' : 'Enter fullscreen'}
           >
             {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
@@ -616,34 +655,42 @@ export default function Watch() {
         </div>
       </header>
 
-      {/* Main Content Area */}
-      <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
-        {/* Video Section - 40vh on mobile, auto on desktop */}
-        <div className="h-[40vh] lg:h-auto lg:flex-1 flex flex-col bg-black flex-shrink-0">
-          {/* Video Player */}
-          <div className="relative flex-1 flex items-center justify-center bg-black p-2 sm:p-4">
-            <video
-              ref={videoRef}
-              controls
-              playsInline
-              className="w-full h-full object-contain"
-            />
-            {status === 'ready-click-to-play' && (
-              <button
-                onClick={handlePlayClick}
-                className="absolute inset-0 flex items-center justify-center bg-black/60 hover:bg-black/50 transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50 z-10"
-              >
-                <div className="w-16 h-16 sm:w-20 sm:h-20 bg-indigo-600 rounded-full flex items-center justify-center hover:bg-indigo-500 transition-colors">
-                  <svg className="w-8 h-8 sm:w-10 sm:h-10 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M8 5v14l11-7z" />
-                  </svg>
-                </div>
-              </button>
-            )}
+      {/* Main Content Area - Full remaining height */}
+      <div
+        className={`flex-1 flex flex-col lg:flex-row ${currentType === 'movie' ? 'overflow-y-auto lg:overflow-hidden' : 'overflow-hidden'}`}
+        style={{ height: 'calc(100dvh - 56px)' }}
+      >
+        {/* Left Side - Video + Status */}
+        <div className={`${currentType === 'movie' ? 'flex-shrink-0 lg:flex-1' : 'flex-1'} flex flex-col overflow-hidden min-h-0`}>
+          {/* Video Container - Height minus status bar */}
+          <div
+            className={`${currentType === 'movie' ? 'h-[34vh] min-h-[190px] max-h-[300px] lg:h-auto lg:max-h-none lg:flex-1' : 'flex-1'} overflow-hidden p-2`}
+            style={currentType === 'movie' ? undefined : { height: 'calc(100dvh - 56px - 40px)' }}
+          >
+            <div className="relative w-full h-full flex items-center justify-center bg-black rounded border border-slate-700">
+              <video
+                ref={videoRef}
+                controls
+                playsInline
+                className="w-full h-full object-contain"
+              />
+              {status === 'ready-click-to-play' && (
+                <button
+                  onClick={handlePlayClick}
+                  className="absolute inset-0 flex items-center justify-center bg-black/60 hover:bg-black/50 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 z-10"
+                >
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 bg-indigo-600 rounded-full flex items-center justify-center hover:bg-indigo-500 transition-colors">
+                    <svg className="w-8 h-8 sm:w-10 sm:h-10 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+                      <path d="M8 5v14l11-7z" />
+                    </svg>
+                  </div>
+                </button>
+              )}
+            </div>
           </div>
 
-          {/* Status Bar */}
-          <div className="flex-shrink-0 px-4 py-2 flex items-center justify-between bg-slate-900 border-t border-slate-800">
+          {/* Status Bar - Fixed height 40px */}
+          <div className="flex-shrink-0 h-10 px-4 flex items-center justify-between bg-slate-900 border-t border-slate-800">
             <div>
               {status === 'loading' && (
                 <div className="flex items-center gap-2 text-slate-400">
@@ -658,7 +705,7 @@ export default function Watch() {
                 <p className="text-green-400 text-sm">Playing</p>
               )}
               {status === 'error' && (
-                <p className="text-red-400 text-sm">{errorMsg}</p>
+                <p className="text-red-400 text-sm truncate max-w-[200px] sm:max-w-md">{errorMsg}</p>
               )}
             </div>
             {status === 'playing' && categoryItems.length > 1 && (
@@ -667,18 +714,23 @@ export default function Watch() {
           </div>
         </div>
 
-        {/* Channel List - Right side on desktop, below player on mobile */}
+        {/* Right Sidebar - Episode/Channel List */}
         {isSidebarOpen && categoryItems.length > 0 && (
-          <aside className="flex-1 lg:flex-initial lg:w-80 flex flex-col bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-700 overflow-hidden min-h-0">
+          <aside
+            className={`${currentType === 'movie' ? 'flex-none' : 'flex-1'} lg:flex-initial lg:w-80 flex flex-col bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-700 overflow-hidden`}
+            style={currentType === 'movie' ? undefined : { height: 'calc(100dvh - 56px)' }}
+          >
             {/* Category Header */}
             <div className="flex-shrink-0 p-3 border-b border-slate-700">
-              <h2 className="text-sm font-medium text-slate-400 uppercase tracking-wide truncate">{categoryName}</h2>
+              <h2 className="text-sm font-medium text-slate-300 uppercase tracking-wide truncate">
+                {currentType === 'movie' ? `More from ${categoryName || 'this category'}` : categoryName}
+              </h2>
               <p className="text-xs text-slate-500 mt-0.5">
-                {currentType === 'episode' ? 'Episode' : currentType === 'channel' ? 'channels' : 'movies'}
+                {currentType === 'episode' ? 'Episode' : currentType === 'channel' ? 'channels' : `${categoryItems.length} more movies`}
               </p>
             </div>
-            {/* Channel List - scrollable with visible scrollbar */}
-            <div className="flex-1 min-h-0 overflow-y-scroll">
+            {/* Scrollable List */}
+            <div className="flex-1 overflow-y-auto min-h-0">
               <div className="flex flex-col gap-1 p-2">
                 {categoryItems.map((item) => {
                   if (!item) return null
@@ -720,7 +772,7 @@ export default function Watch() {
                         <img
                           src={(item.data as MovieRecord).logoUrl}
                           alt={getItemName(item)}
-                          className="w-10 h-10 object-cover rounded bg-slate-800 flex-shrink-0"
+                          className="w-12 h-16 lg:w-10 lg:h-10 object-cover rounded bg-slate-800 flex-shrink-0"
                           loading="lazy"
                           onError={(e) => {
                             const target = e.target as HTMLImageElement
@@ -728,7 +780,7 @@ export default function Watch() {
                           }}
                         />
                       ) : (
-                        <div className="w-10 h-10 bg-slate-800 rounded flex items-center justify-center flex-shrink-0">
+                        <div className={`${item.type === 'movie' ? 'w-12 h-16 lg:w-10 lg:h-10' : 'w-10 h-10'} bg-slate-800 rounded flex items-center justify-center flex-shrink-0`}>
                           {item.type === 'channel' ? (
                             <Tv2 size={18} className="text-slate-400" />
                           ) : (

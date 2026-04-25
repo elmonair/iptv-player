@@ -15,6 +15,7 @@ function getDeviceId(): string {
 export function TopNavBar() {
   const navigate = useNavigate()
   const [showUserMenu, setShowUserMenu] = useState(false)
+  const [showPlaylistMenu, setShowPlaylistMenu] = useState(false)
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
   const activeSource = getActiveSource()
 
@@ -47,12 +48,17 @@ export function TopNavBar() {
           <span className="font-medium text-green-500">Active (12 months)</span>
         </div>
         <div className="h-4 w-px bg-slate-700" />
-        <div className="flex items-center gap-1.5">
-          <span className="text-slate-400">Playlist:</span>
-          <span className="text-white font-medium">{activeSource?.name || 'None'}</span>
-          {playlistExpDate && (
-            <span className="text-slate-500">(exp: {playlistExpDate})</span>
-          )}
+        <div className="relative">
+          <button
+            onClick={() => setShowPlaylistMenu(!showPlaylistMenu)}
+            className="flex items-center gap-1.5 hover:bg-slate-800 px-2 py-1 rounded transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
+          >
+            <span className="text-slate-400">Playlist:</span>
+            <span className="text-white font-medium max-w-[120px] truncate">{activeSource?.name || 'None'}</span>
+            {playlistExpDate && <span className="text-slate-500 text-xs">({playlistExpDate})</span>}
+            {showPlaylistMenu ? <ChevronUp size={12} /> : <ChevronDown size={12} />}
+          </button>
+          {showPlaylistMenu && <PlaylistDropdown onClose={() => setShowPlaylistMenu(false)} />}
         </div>
         <div className="h-4 w-px bg-slate-700" />
         <div className="flex items-center gap-1.5">
@@ -186,6 +192,72 @@ function UserDropdownMenu({ onClose }: UserDropdownMenuProps) {
             Logout
           </button>
         </div>
+      </div>
+    </>
+  )
+}
+
+type PlaylistDropdownProps = {
+  onClose: () => void
+}
+
+function PlaylistDropdown({ onClose }: PlaylistDropdownProps) {
+  const navigate = useNavigate()
+  const sources = usePlaylistStore((state) => state.sources)
+  const activeSourceId = usePlaylistStore((state) => state.activeSourceId)
+  const setActiveSource = usePlaylistStore((state) => state.setActiveSource)
+  const [justSwitched, setJustSwitched] = useState<string | null>(null)
+
+  const formatExpDate = (exp: number | null) => {
+    if (!exp || exp === 0) return null
+    return new Date(exp * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  const handleSwitch = (id: string) => {
+    if (id === activeSourceId) { onClose(); return }
+    setActiveSource(id)
+    setJustSwitched(id)
+    setTimeout(() => { setJustSwitched(null); onClose() }, 1500)
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} onKeyDown={(e) => e.key === 'Escape' && onClose()} />
+      <div className="absolute left-0 top-full mt-2 w-72 max-h-80 overflow-y-auto bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50">
+        <div className="px-3 py-2 border-b border-slate-700">
+          <p className="text-xs text-slate-400 uppercase tracking-wide">Switch Playlist</p>
+        </div>
+        {sources.length === 0 && (
+          <div className="px-3 py-4 text-center">
+            <p className="text-slate-400 text-sm">No playlists found</p>
+            <button onClick={() => { navigate('/'); onClose() }} className="mt-2 text-yellow-500 text-sm hover:underline">Add Playlist</button>
+          </div>
+        )}
+        {sources.map((s) => {
+          const isActive = s.id === activeSourceId
+          const isJustSwitched = s.id === justSwitched
+          return (
+            <button
+              key={s.id}
+              onClick={() => handleSwitch(s.id)}
+              className={`w-full text-left px-3 py-2.5 flex flex-col gap-0.5 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50 ${isActive ? 'bg-slate-700/50' : 'hover:bg-slate-700'}`}
+            >
+              <div className="flex items-center justify-between">
+                <span className={`text-sm truncate ${isActive ? 'text-yellow-500 font-medium' : 'text-white'}`}>{s.name}</span>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {isJustSwitched && <span className="text-xs text-green-400 font-medium">Switched</span>}
+                  {isActive && <span className="px-1.5 py-0.5 bg-yellow-500/20 text-yellow-500 text-xs rounded">Active</span>}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <span>{s.type === 'xtream' ? 'Xtream Codes' : 'M3U URL'}</span>
+                {s.type === 'xtream' && s.expDate && (
+                  <span>exp: {formatExpDate(s.expDate)}</span>
+                )}
+              </div>
+            </button>
+          )
+        })}
       </div>
     </>
   )

@@ -1,6 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Search, MoreVertical } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
+import { useBrowseStore } from '../stores/browseStore'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../lib/db'
 import { TopNavBar } from '../components/TopNavBar'
@@ -10,6 +11,7 @@ export default function CategoryChannelList() {
   const navigate = useNavigate()
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
   const activeSource = getActiveSource()
+  const { enterPlayer, saveItems, setFocusedItem, selectCategory } = useBrowseStore()
 
   const categoryName = useLiveQuery(
     async () => {
@@ -37,15 +39,23 @@ export default function CategoryChannelList() {
   )
 
   const handleChannelClick = (channelId: string) => {
-    navigate(`/watch/${encodeURIComponent(channelId)}`)
+    const catId = categoryId && categoryId !== '__all__' ? decodeURIComponent(categoryId) : null
+    const channel = channels?.find((c) => c.id === channelId)
+    if (channels) saveItems(channels)
+    enterPlayer(channelId)
+    setFocusedItem(channelId)
+    selectCategory(catId, categoryName ?? null)
+    navigate(`/watch/${encodeURIComponent(channelId)}`, {
+      state: { returnCategoryId: catId || '__all__', returnChannelId: channel?.id },
+    })
   }
 
   return (
-    <div className="min-h-screen bg-slate-900">
+    <div className="h-[100dvh] bg-slate-900 flex flex-col overflow-hidden">
       <TopNavBar />
 
       {/* Header */}
-      <header className="h-14 bg-slate-900 border-b border-slate-700 flex items-center px-2">
+      <header className="h-14 flex-shrink-0 bg-slate-900 border-b border-slate-700 flex items-center px-2">
         <button
           onClick={() => navigate('/live')}
           className="w-11 h-11 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
@@ -67,7 +77,7 @@ export default function CategoryChannelList() {
       </header>
 
       {/* Channel List */}
-      <div className="overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto">
         {channels === undefined && (
           <div className="flex items-center justify-center h-32">
             <p className="text-slate-400">Loading channels...</p>

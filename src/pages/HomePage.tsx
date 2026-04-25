@@ -219,6 +219,14 @@ type PlaylistCardProps = {
 }
 
 function PlaylistCard({ name, type, isActive, onEdit, onDelete, onActivate, onResync }: PlaylistCardProps) {
+  const [justActivated, setJustActivated] = useState(false)
+
+  const handleActivate = () => {
+    onActivate()
+    setJustActivated(true)
+    setTimeout(() => setJustActivated(false), 2000)
+  }
+
   return (
     <div className={`bg-slate-800 rounded-xl p-5 border ${isActive ? 'border-yellow-500' : 'border-slate-700'}`}>
       <div className="flex items-start justify-between mb-3">
@@ -231,11 +239,16 @@ function PlaylistCard({ name, type, isActive, onEdit, onDelete, onActivate, onRe
             Active
           </span>
         )}
+        {justActivated && (
+          <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs font-medium rounded">
+            Switched
+          </span>
+        )}
       </div>
       <div className="flex items-center gap-2">
         {!isActive && (
           <button
-            onClick={onActivate}
+            onClick={handleActivate}
             className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
           >
             Activate

@@ -11,6 +11,7 @@ export type PlaylistSourceRecord = {
   usernameEncrypted?: string
   passwordEncrypted?: string
   expDate?: number
+  isActive?: boolean
 }
 
 export type CategoryRecord = {
@@ -40,12 +41,14 @@ export type MovieRecord = {
   externalId: string
   name: string
   logoUrl?: string
+  backdropUrl?: string
   streamId: string
   categoryId: string
   containerExtension?: string
   year?: number
   rating?: number
   plot?: string
+  description?: string
   genre?: string
   cast?: string
   director?: string
@@ -95,6 +98,14 @@ export type SyncMetadataRecord = {
   errorMessage?: string
 }
 
+export type FavoriteRecord = {
+  id: string
+  itemType: 'channel' | 'movie' | 'series' | 'episode'
+  itemId: string
+  sourceId: string
+  addedAt: number
+}
+
 class IptvDatabase extends Dexie {
   sources!: Table<PlaylistSourceRecord>
   categories!: Table<CategoryRecord>
@@ -103,6 +114,7 @@ class IptvDatabase extends Dexie {
   series!: Table<SeriesRecord>
   episodes!: Table<EpisodeRecord>
   syncMetadata!: Table<SyncMetadataRecord>
+  favorites!: Table<FavoriteRecord>
 
   constructor() {
     super('IptvDatabase')
@@ -119,6 +131,27 @@ class IptvDatabase extends Dexie {
       series: 'id, sourceId, categoryId, name',
       episodes: 'id, seriesId, seasonNumber, episodeNumber',
       syncMetadata: 'sourceId',
+    })
+
+    this.version(3).stores({
+      sources: 'id, type, createdAt',
+      categories: 'id, sourceId, type, externalId',
+      channels: 'id, sourceId, categoryId, name, externalId',
+      movies: 'id, sourceId, categoryId, name, year, externalId',
+      series: 'id, sourceId, categoryId, name, externalId',
+      episodes: 'id, seriesId, seasonNumber, episodeNumber, externalId',
+      syncMetadata: 'sourceId',
+    })
+
+    this.version(4).stores({
+      sources: 'id, type, createdAt',
+      categories: 'id, sourceId, type, externalId',
+      channels: 'id, sourceId, categoryId, name, externalId',
+      movies: 'id, sourceId, categoryId, name, year, externalId',
+      series: 'id, sourceId, categoryId, name, externalId',
+      episodes: 'id, seriesId, seasonNumber, episodeNumber, externalId',
+      syncMetadata: 'sourceId',
+      favorites: 'id, itemType, itemId, sourceId, addedAt',
     })
   }
 }

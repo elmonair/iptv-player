@@ -8,6 +8,7 @@ import type {
   XtreamSeriesCategory,
   XtreamSeries,
   XtreamSeriesInfo,
+  XtreamVodInfo,
 } from './xtreamTypes'
 
 export type { XtreamCredentials }
@@ -109,6 +110,10 @@ export async function getSeriesCategories(serverUrl: string, credentials: Xtream
 export async function getSeriesList(serverUrl: string, credentials: XtreamCredentials, categoryId?: string): Promise<XtreamSeries[]> {
   const params: Record<string, string> = categoryId ? { category_id: categoryId } : {}
   return await fetchJson<XtreamSeries[]>(serverUrl, 'get_series', credentials, params)
+}
+
+export async function getVodInfo(serverUrl: string, credentials: XtreamCredentials, vodId: string): Promise<XtreamVodInfo> {
+  return await fetchJson<XtreamVodInfo>(serverUrl, 'get_vod_info', credentials, { vod_id: vodId })
 }
 
 export async function getSeriesInfo(serverUrl: string, credentials: XtreamCredentials, seriesId: string): Promise<XtreamSeriesInfo> {

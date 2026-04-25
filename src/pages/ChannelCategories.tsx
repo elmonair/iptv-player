@@ -1,16 +1,28 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronDown, ChevronUp, Star, ChevronRight, ArrowLeft } from 'lucide-react'
+import { ChevronDown, ChevronUp, Star, ChevronRight, ArrowLeft, Heart } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
+import { useFavoritesStore } from '../stores/favoritesStore'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../lib/db'
-import type { ChannelRecord, MovieRecord, SeriesRecord } from '../lib/db'
 import { TopNavBar } from '../components/TopNavBar'
 import MovieCard from '../components/movies/MovieCard'
 import SeriesCard from '../components/series/SeriesCard'
+import type { CategoryRecord, ChannelRecord, MovieRecord, SeriesRecord } from '../lib/db'
 
 type Tab = 'channels' | 'movies' | 'series'
+
+function safeString(value: unknown): string {
+  if (value === null || value === undefined) return ''
+  return String(value)
+}
+
+function safeName(item: unknown): string {
+  if (!item || typeof item !== 'object') return ''
+  const obj = item as Record<string, unknown>
+  return safeString(obj.name ?? obj.title ?? obj.series_name ?? '')
+}
 
 export default function ChannelCategories() {
   const navigate = useNavigate()
@@ -19,12 +31,13 @@ export default function ChannelCategories() {
   const categoryParam = searchParams.get('category')
 
   const [selectedTab, setSelectedTab] = useState<Tab>(tabParam || 'channels')
-  const [playlistExpanded, setPlaylistExpanded] = useState(false)
+  const [showPlaylistDropdown, setShowPlaylistDropdown] = useState(false)
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
   const [isDesktop, setIsDesktop] = useState(false)
   const [mobileView, setMobileView] = useState<'categories' | 'items'>('categories')
   const scrollRef = useRef<HTMLDivElement>(null)
   const categoryListRef = useRef<HTMLDivElement>(null)
+  const requestIdRef = useRef(0)
 
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
   const activeSource = getActiveSource()
@@ -40,10 +53,12 @@ export default function ChannelCategories() {
 
   useEffect(() => {
     if (tabParam && tabParam !== selectedTab) {
+      console.log('[ChannelCategories] Tab param changed:', { from: selectedTab, to: tabParam })
       setSelectedTab(tabParam)
       setMobileView('categories')
+      setSelectedCategoryId(null)
     }
-  }, [tabParam, selectedTab])
+  }, [tabParam])
 
   useEffect(() => {
     setSection(selectedTab === 'channels' ? 'live' : selectedTab === 'movies' ? 'movies' : 'series')
@@ -51,12 +66,13 @@ export default function ChannelCategories() {
 
   useEffect(() => {
     if (categoryParam && categoryParam !== selectedCategoryId) {
+      console.log('[ChannelCategories] Category param changed:', { categoryParam })
       setSelectedCategoryId(categoryParam)
       if (!isDesktop) {
         setMobileView('items')
       }
     }
-  }, [categoryParam, selectedCategoryId, isDesktop])
+  }, [categoryParam, isDesktop])
 
   useEffect(() => {
     const section = selectedTab === 'channels' ? 'live' : selectedTab === 'movies' ? 'movies' : 'series'
@@ -64,13 +80,18 @@ export default function ChannelCategories() {
 
     if (sectionState.selectedCategoryId && sectionState.items.length > 0) {
       if (!selectedCategoryId || selectedCategoryId !== sectionState.selectedCategoryId) {
+        console.log('[ChannelCategories] Restoring from browse state:', { 
+          section, 
+          categoryId: sectionState.selectedCategoryId,
+          itemCount: sectionState.items.length 
+        })
         setSelectedCategoryId(sectionState.selectedCategoryId)
         if (!isDesktop) {
           setMobileView('items')
         }
       }
     }
-  }, [isDesktop, selectedCategoryId, selectedTab])
+  }, [isDesktop, selectedTab])
 
   useEffect(() => {
     const section = selectedTab === 'channels' ? 'live' : selectedTab === 'movies' ? 'movies' : 'series'
@@ -81,14 +102,51 @@ export default function ChannelCategories() {
     }
   }, [selectedCategoryId])
 
+  // Request ID pattern for categories
+  const [categoriesLoading, setCategoriesLoading] = useState(false)
   const categories = useLiveQuery(
     async () => {
       if (!activeSource) return []
-      const type = selectedTab === 'channels' ? 'live' : selectedTab === 'movies' ? 'movie' : 'series'
-      const cats = await db.categories.where('sourceId').equals(activeSource.id).and(c => c.type === type).toArray()
-      return cats.sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''))
+      const requestId = ++requestIdRef.current
+      console.log('[ChannelCategories] Loading categories:', { tab: selectedTab, requestId })
+      setCategoriesLoading(true)
+
+      try {
+        const type = selectedTab === 'channels' ? 'live' : selectedTab === 'movies' ? 'movie' : 'series'
+        const cats = await db.categories.where('sourceId').equals(activeSource.id).and(c => c.type === type).toArray()
+
+        if (requestId !== requestIdRef.current) {
+          console.log('[ChannelCategories] Ignoring stale categories response:', { requestId, current: requestIdRef.current })
+          return []
+        }
+
+        const safeCats = Array.isArray(cats) ? cats : []
+        console.log('[ChannelCategories] Categories loaded:', { count: safeCats.length, requestId })
+        return safeCats.sort((a, b) => safeString(a?.name).localeCompare(safeString(b?.name)))
+      } catch (err) {
+        console.error('[ChannelCategories] Failed to load categories:', err)
+        return []
+      } finally {
+        if (requestId === requestIdRef.current) {
+          setCategoriesLoading(false)
+        }
+      }
     },
-    [activeSource, selectedTab],
+    [activeSource?.id, selectedTab],
+  )
+
+  const favoritesCount = useLiveQuery(
+    async () => {
+      if (!activeSource) return 0
+      const itemType = selectedTab === 'channels' ? 'channel' : selectedTab === 'movies' ? 'movie' : 'series'
+      const favorites = await db.favorites
+        .where('sourceId')
+        .equals(activeSource.id)
+        .and(f => f.itemType === itemType)
+        .toArray()
+      return favorites.length
+    },
+    [activeSource?.id, selectedTab],
   )
 
   const itemCounts = useLiveQuery(
@@ -103,17 +161,41 @@ export default function ChannelCategories() {
         items = await db.series.where('sourceId').equals(activeSource.id).toArray()
       }
       const countMap = new Map<string, number>()
-      items.forEach(item => {
-        countMap.set(item.categoryId, (countMap.get(item.categoryId) ?? 0) + 1)
+      const safeItems = Array.isArray(items) ? items : []
+      safeItems.forEach(item => {
+        if (item?.categoryId) {
+          countMap.set(item.categoryId, (countMap.get(item.categoryId) ?? 0) + 1)
+        }
       })
       return countMap
     },
-    [activeSource, selectedTab],
+    [activeSource?.id, selectedTab],
   )
 
   const previewItems = useLiveQuery(
     async () => {
       if (!activeSource) return []
+
+      const FAVORITES_CATEGORY_ID = 'favorites'
+
+      if (selectedCategoryId === FAVORITES_CATEGORY_ID) {
+        const favorites = await db.favorites.where('sourceId').equals(activeSource.id).toArray()
+        const itemType = selectedTab === 'channels' ? 'channel' : selectedTab === 'movies' ? 'movie' : 'series'
+
+        const favoriteIds = favorites
+          .filter(f => f.itemType === itemType)
+          .map(f => f.itemId)
+
+        if (favoriteIds.length === 0) return []
+
+        if (selectedTab === 'channels') {
+          return db.channels.where('id').anyOf(favoriteIds).toArray()
+        } else if (selectedTab === 'movies') {
+          return db.movies.where('id').anyOf(favoriteIds).toArray()
+        } else {
+          return db.series.where('id').anyOf(favoriteIds).toArray()
+        }
+      }
 
       if (selectedCategoryId) {
         if (selectedTab === 'channels') {
@@ -129,15 +211,36 @@ export default function ChannelCategories() {
       }
       return []
     },
-    [activeSource, selectedCategoryId, selectedTab],
+    [activeSource?.id, selectedCategoryId, selectedTab],
+  )
+
+  // Load all movies for Movies Home view (when no category selected)
+  const allMovies = useLiveQuery(
+    async () => {
+      if (!activeSource || selectedTab !== 'movies' || selectedCategoryId) return []
+      return db.movies.where('sourceId').equals(activeSource.id).toArray()
+    },
+    [activeSource?.id, selectedTab, selectedCategoryId],
+  )
+
+  // Load all series for Series Home view (when no category selected)
+  const allSeries = useLiveQuery(
+    async () => {
+      if (!activeSource || selectedTab !== 'series' || selectedCategoryId) return []
+      return db.series.where('sourceId').equals(activeSource.id).toArray()
+    },
+    [activeSource?.id, selectedTab, selectedCategoryId],
   )
 
   useEffect(() => {
-    if (previewItems && previewItems.length > 0 && selectedCategoryId) {
-      selectCategory(selectedCategoryId, categories?.find(c => c.id === selectedCategoryId)?.name ?? null)
-      saveItems(previewItems)
+    const safePreview = Array.isArray(previewItems) ? previewItems : []
+    if (safePreview.length > 0 && selectedCategoryId) {
+      const cat = categories?.find(c => c?.id === selectedCategoryId)
+      const catName = safeName(cat)
+      selectCategory(selectedCategoryId, catName || null)
+      saveItems(safePreview)
     }
-  }, [previewItems, selectedCategoryId])
+  }, [previewItems, selectedCategoryId, categories])
 
   const totalCount = itemCounts
     ? Array.from(itemCounts.values()).reduce((a, b) => a + b, 0)
@@ -147,13 +250,26 @@ export default function ChannelCategories() {
     if (selectedCategoryId === null) {
       return selectedTab === 'channels' ? 'All Channels' : 'Select a category'
     }
-    return categories?.find(c => c.id === selectedCategoryId)?.name ?? (selectedTab === 'channels' ? 'Channels' : 'Select a category')
+    const cat = categories?.find(c => c?.id === selectedCategoryId)
+    return safeName(cat) || (selectedTab === 'channels' ? 'Channels' : 'Select a category')
   }
 
   const handleTabClick = (tab: Tab) => {
+    if (tab === selectedTab) {
+      console.log('[ChannelCategories] Tab already active, ignoring:', tab)
+      return
+    }
+
+    console.log('[ChannelCategories] Switching tab:', { from: selectedTab, to: tab })
+
     if (scrollRef.current) {
       saveScrollTop(scrollRef.current.scrollTop)
     }
+
+    // Increment request ID to cancel any pending loads
+    requestIdRef.current++
+    console.log('[ChannelCategories] Incremented request ID:', requestIdRef.current)
+
     setSelectedTab(tab)
     setSelectedCategoryId(null)
     setMobileView('categories')
@@ -163,9 +279,11 @@ export default function ChannelCategories() {
   }
 
   const handleMobileBackToCategories = () => {
+    console.log('[ChannelCategories] Back to categories')
     setMobileView('categories')
-    if (categoryListRef.current && browseState[selectedTab === 'channels' ? 'live' : selectedTab].scrollTop > 0) {
-      categoryListRef.current.scrollTop = browseState[selectedTab === 'channels' ? 'live' : selectedTab].scrollTop
+    const section = selectedTab === 'channels' ? 'live' : selectedTab
+    if (categoryListRef.current && browseState[section]?.scrollTop > 0) {
+      categoryListRef.current.scrollTop = browseState[section].scrollTop
     }
   }
 
@@ -174,7 +292,7 @@ export default function ChannelCategories() {
       return
     }
 
-    console.log(`[ChannelCategories] Clicked category:`, { categoryId, tab: selectedTab, isDesktop })
+    console.log('[ChannelCategories] Clicked category:', { categoryId, tab: selectedTab, isDesktop })
 
     try {
       if (scrollRef.current) {
@@ -187,8 +305,9 @@ export default function ChannelCategories() {
     if (isDesktop) {
       setSelectedCategoryId(categoryId)
       if (categoryId) {
-        const catName = categories?.find(c => c.id === categoryId)?.name ?? null
-        selectCategory(categoryId, catName)
+        const cat = categories?.find(c => c?.id === categoryId)
+        const catName = safeName(cat)
+        selectCategory(categoryId, catName || null)
       }
     } else {
       if (selectedTab === 'channels') {
@@ -196,33 +315,68 @@ export default function ChannelCategories() {
       } else {
         if (categoryId === null) return
         setSelectedCategoryId(categoryId)
-        const catName = categories?.find(c => c.id === categoryId)?.name ?? null
-        selectCategory(categoryId, catName)
+        const cat = categories?.find(c => c?.id === categoryId)
+        const catName = safeName(cat)
+        selectCategory(categoryId, catName || null)
         setMobileView('items')
-        console.log(`[ChannelCategories] Switched to mobile items view:`, { categoryId, catName })
+        console.log('[ChannelCategories] Switched to mobile items view:', { categoryId, catName })
       }
     }
   }
 
   const handleItemClick = (item: ChannelRecord | MovieRecord | SeriesRecord) => {
+    console.log('[ChannelCategories] Item clicked:', {
+      id: item?.id,
+      name: safeName(item),
+      tab: selectedTab
+    })
+
+    if (!item) {
+      console.error('[ChannelCategories] Cannot click null item')
+      return
+    }
+
     if (selectedTab === 'series') {
       const series = item as SeriesRecord
+      if (!series?.externalId) {
+        console.error('[ChannelCategories] Series missing externalId:', series)
+        return
+      }
       setSection('series')
       setSelectedSeries(series.externalId)
       setFocusedItem(item.id)
       if (scrollRef.current) {
         saveScrollTop(scrollRef.current.scrollTop)
       }
-      if (previewItems) {
-        saveItems(previewItems)
+      const safePreview = Array.isArray(previewItems) ? previewItems : []
+      if (safePreview.length > 0) {
+        saveItems(safePreview)
       }
       navigate(`/series/${encodeURIComponent(series.externalId)}`)
       return
     }
+
+    if (selectedTab === 'movies') {
+      const movie = item as MovieRecord
+      setSection('movies')
+      setFocusedItem(item.id)
+      if (scrollRef.current) {
+        saveScrollTop(scrollRef.current.scrollTop)
+      }
+      const safePreview = Array.isArray(previewItems) ? previewItems : []
+      if (safePreview.length > 0) {
+        saveItems(safePreview)
+      }
+      navigate(`/movie/${encodeURIComponent(movie.id)}`)
+      return
+    }
+
+    // Channels - go directly to player
     enterPlayer(item.id)
     setFocusedItem(item.id)
-    if (previewItems) {
-      saveItems(previewItems)
+    const safePreview = Array.isArray(previewItems) ? previewItems : []
+    if (safePreview.length > 0) {
+      saveItems(safePreview)
     }
     navigate(`/watch/${encodeURIComponent(item.id)}`)
   }
@@ -241,30 +395,38 @@ export default function ChannelCategories() {
   // Mobile items view for Movies/Series
   const showMobileItemsView = !isDesktop && mobileView === 'items' && selectedCategoryId && (selectedTab === 'movies' || selectedTab === 'series')
 
+  const safeCategories: CategoryRecord[] = Array.isArray(categories) ? categories : []
+  const safePreviewItems: (ChannelRecord | MovieRecord | SeriesRecord)[] = Array.isArray(previewItems) ? previewItems : []
+
   return (
     <div className="h-screen bg-slate-900 flex flex-col overflow-hidden">
       <TopNavBar />
 
       <div className="flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0">
         {/* Left Column: Categories - Hidden on mobile when showing items */}
-        <div className={`flex-shrink-0 bg-slate-900 flex flex-col ${isDesktop ? 'w-[400px] border-r border-slate-700' : 'w-full'} ${showMobileItemsView ? 'hidden' : 'flex'}`}>
+        <div className={`bg-slate-900 flex flex-col ${isDesktop ? 'flex-shrink-0 w-[400px] border-r border-slate-700' : 'flex-1 min-h-0 overflow-hidden'} ${showMobileItemsView ? 'hidden' : 'flex'}`}>
           {/* Playlist Info */}
-          <button
-            onClick={() => setPlaylistExpanded(!playlistExpanded)}
-            className="w-full bg-slate-800 px-4 py-3 border-b border-slate-700 flex items-center justify-between hover:bg-slate-750 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
-          >
-            <div className="flex-1 text-left">
-              <p className="text-base font-medium text-white truncate">{activeSource.name}</p>
-              {playlistExpanded && (
+          <div className="relative flex-shrink-0">
+            <button
+              onClick={() => setShowPlaylistDropdown(!showPlaylistDropdown)}
+              className="w-full bg-slate-800 px-4 py-3 border-b border-slate-700 flex items-center justify-between hover:bg-slate-750 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
+            >
+              <div className="flex-1 text-left min-w-0">
+                <p className="text-base font-medium text-white truncate">{activeSource.name}</p>
                 <p className="text-sm text-slate-400 truncate">
-                  {activeSource.type === 'xtream' ? activeSource.serverUrl : activeSource.url}
+                  {activeSource.type === 'xtream' ? activeSource.serverUrl : (activeSource as {url?: string}).url}
                 </p>
-              )}
-            </div>
-            <div className="w-10 h-10 flex items-center justify-center text-slate-400">
-              {playlistExpanded ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-            </div>
-          </button>
+              </div>
+              <div className="w-10 h-10 flex items-center justify-center text-slate-400 flex-shrink-0">
+                {showPlaylistDropdown ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
+              </div>
+            </button>
+            {showPlaylistDropdown && (
+              <SidebarPlaylistDropdown
+                onClose={() => setShowPlaylistDropdown(false)}
+              />
+            )}
+          </div>
 
           {/* Tabs */}
           <div className="flex gap-4 sm:gap-6 px-4 bg-slate-900 border-b border-slate-700 flex-shrink-0">
@@ -301,36 +463,44 @@ export default function ChannelCategories() {
           </div>
 
           {/* Category List */}
-          <div ref={categoryListRef} className="flex-1 overflow-y-auto">
-            {selectedTab === 'channels' && (
+          <div ref={categoryListRef} className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain" style={{ touchAction: 'pan-y' }}>
+            {categoriesLoading && (
+              <div className="flex items-center justify-center h-32">
+                <p className="text-slate-400">Loading categories...</p>
+              </div>
+            )}
+            
+            {!categoriesLoading && (
               <>
-                <CategoryListItem
-                  name="All channels"
-                  count={totalCount}
-                  isActive={selectedCategoryId === null}
-                  onClick={() => handleCategoryClick(null)}
-                />
+                {selectedTab === 'channels' && (
+                  <CategoryListItem
+                    name="All channels"
+                    count={totalCount}
+                    isActive={selectedCategoryId === null}
+                    onClick={() => handleCategoryClick(null)}
+                  />
+                )}
                 <CategoryListItem
                   name="Favorites"
-                  count={0}
+                  count={favoritesCount || 0}
                   starred
-                  isActive={false}
-                  onClick={() => {}}
+                  isActive={selectedCategoryId === 'favorites'}
+                  onClick={() => handleCategoryClick('favorites')}
                 />
               </>
             )}
 
-            {categories?.map(cat => (
+            {!categoriesLoading && safeCategories.map(cat => (
               <CategoryListItem
-                key={cat.id}
-                name={cat.name ?? ''}
-                count={itemCounts?.get(cat.id) ?? 0}
-                isActive={selectedCategoryId === cat.id}
-                onClick={() => handleCategoryClick(cat.id)}
+                key={cat?.id || Math.random()}
+                name={safeName(cat) || 'Untitled'}
+                count={itemCounts?.get(cat?.id as string) ?? 0}
+                isActive={selectedCategoryId === (cat?.id as string | null)}
+                onClick={() => handleCategoryClick((cat?.id as string | null) || null)}
               />
             ))}
 
-            {categories?.length === 0 && (
+            {!categoriesLoading && safeCategories.length === 0 && (
               <div className="flex items-center justify-center h-32">
                 <p className="text-slate-400 text-base">
                   {selectedTab === 'channels' ? 'No channel categories' : selectedTab === 'movies' ? 'No movies' : 'No series'}
@@ -343,7 +513,7 @@ export default function ChannelCategories() {
         {/* Right Column: Content Grid - Desktop only OR Mobile items view */}
         <main
           ref={scrollRef}
-          className={`flex-1 flex-col overflow-hidden ${isDesktop ? 'hidden lg:flex' : showMobileItemsView ? 'flex' : 'hidden'}`}
+          className={`flex-1 flex flex-col overflow-hidden min-h-0 ${isDesktop ? 'hidden lg:flex' : showMobileItemsView ? 'flex' : 'hidden'}`}
         >
           {/* Category Header with Back button for mobile */}
           <div className="h-14 flex-shrink-0 bg-slate-900 border-b border-slate-700 flex items-center px-4 sm:px-6">
@@ -358,55 +528,82 @@ export default function ChannelCategories() {
               </button>
             )}
             <h2 className="text-lg sm:text-xl font-bold text-white truncate">{getCategoryName()}</h2>
-            {previewItems && (
+            {safePreviewItems.length > 0 && (
               <span className="ml-3 text-sm text-slate-400 flex-shrink-0">
-                {previewItems.length} {selectedTab === 'channels' ? 'channels' : selectedTab === 'movies' ? 'movies' : 'series'}
+                {safePreviewItems.length} {selectedTab === 'channels' ? 'channels' : selectedTab === 'movies' ? 'movies' : 'series'}
               </span>
             )}
           </div>
 
           {/* Content Grid */}
           <div className="flex-1 overflow-y-auto p-4">
-            {previewItems === undefined && (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-slate-400">Select a category</p>
-              </div>
+            {/* Movies Home View - when movies tab is active but no category selected */}
+            {selectedTab === 'movies' && !selectedCategoryId && (
+              <MoviesHome
+                allMovies={allMovies}
+                categories={safeCategories}
+                itemCounts={itemCounts}
+                onSelectCategory={handleCategoryClick}
+                onSelectMovie={handleItemClick}
+              />
             )}
 
-            {previewItems && previewItems.length === 0 && (
-              <div className="flex items-center justify-center h-full">
-                <p className="text-slate-400">
-                  {selectedTab === 'channels' ? 'No channels in this category' :
-                   selectedCategoryId === null ? 'Select a category to browse' :
-                   `No ${selectedTab} in this category`}
-                </p>
-              </div>
+            {/* Series Home View - when series tab is active but no category selected */}
+            {selectedTab === 'series' && !selectedCategoryId && (
+              <SeriesHome
+                allSeries={allSeries}
+                categories={safeCategories}
+                itemCounts={itemCounts}
+                onSelectCategory={handleCategoryClick}
+                onSelectSeries={handleItemClick}
+              />
             )}
 
-            {previewItems && previewItems.length > 0 && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 sm:gap-4">
-                {selectedTab === 'channels' && previewItems.map(item => (
-                  <ChannelCard
-                    key={item.id}
-                    channel={item as ChannelRecord}
-                    onClick={() => handleItemClick(item)}
-                  />
-                ))}
-                {selectedTab === 'movies' && previewItems.map(item => (
-                  <MovieCard
-                    key={item.id}
-                    movie={item as MovieRecord}
-                    onClick={() => handleItemClick(item)}
-                  />
-                ))}
-                {selectedTab === 'series' && previewItems.map(item => (
-                  <SeriesCard
-                    key={item.id}
-                    series={item as SeriesRecord}
-                    onClick={() => handleItemClick(item)}
-                  />
-                ))}
-              </div>
+            {/* Regular category view */}
+            {((selectedTab !== 'movies' && selectedTab !== 'series') || selectedCategoryId) && (
+              <>
+                {previewItems === undefined && (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-slate-400">Select a category</p>
+                  </div>
+                )}
+
+                {previewItems !== undefined && safePreviewItems.length === 0 && (
+                  <div className="flex items-center justify-center h-full">
+                    <p className="text-slate-400">
+                      {selectedTab === 'channels' ? 'No channels in this category' :
+                       selectedCategoryId === null ? 'Select a category to browse' :
+                       `No ${selectedTab} in this category`}
+                    </p>
+                  </div>
+                )}
+
+                {safePreviewItems.length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 sm:gap-4">
+                    {selectedTab === 'channels' && safePreviewItems.map(item => (
+                      <ChannelCard
+                        key={(item as ChannelRecord)?.id || Math.random()}
+                        channel={item as ChannelRecord}
+                        onClick={() => handleItemClick(item)}
+                      />
+                    ))}
+                    {selectedTab === 'movies' && safePreviewItems.map(item => (
+                      <MovieCard
+                        key={(item as MovieRecord)?.id || Math.random()}
+                        movie={item as MovieRecord}
+                        onClick={() => handleItemClick(item)}
+                      />
+                    ))}
+                    {selectedTab === 'series' && safePreviewItems.map(item => (
+                      <SeriesCard
+                        key={(item as SeriesRecord)?.id || Math.random()}
+                        series={item as SeriesRecord}
+                        onClick={() => handleItemClick(item)}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </main>
@@ -448,7 +645,7 @@ function CategoryListItem({ name, count, starred, isActive, onClick }: CategoryL
       <div className="flex items-center gap-2 flex-1 min-w-0">
         {starred && <Star size={16} className="text-yellow-500 flex-shrink-0 fill-yellow-500" />}
         <span className={`text-base truncate ${starred ? 'text-yellow-500' : isActive ? 'text-indigo-400' : 'text-white'}`}>
-          {name}
+          {name || 'Untitled'}
         </span>
       </div>
       <div className="flex items-center gap-3 flex-shrink-0">
@@ -459,6 +656,222 @@ function CategoryListItem({ name, count, starred, isActive, onClick }: CategoryL
   )
 }
 
+type MoviesHomeProps = {
+  allMovies: MovieRecord[] | undefined
+  categories: CategoryRecord[]
+  itemCounts: Map<string, number> | undefined
+  onSelectCategory: (categoryId: string) => void
+  onSelectMovie: (movie: MovieRecord) => void
+}
+
+function MoviesHome({ allMovies, categories, itemCounts, onSelectCategory, onSelectMovie }: MoviesHomeProps) {
+  // Get recently added movies - limit to 24
+  const recentMovies = allMovies?.slice(0, 24) ?? []
+
+  // Get categories with counts
+  const categoriesWithCounts = categories
+    .map(cat => ({
+      ...cat,
+      count: itemCounts?.get(cat.id) ?? 0,
+    }))
+    .filter(cat => cat.count > 0)
+    .slice(0, 12) // Limit to 12 categories for display
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="text-center py-6">
+        <h1 className="text-3xl font-bold text-white mb-2">Movies</h1>
+        <p className="text-slate-400">Explore your VOD library</p>
+      </div>
+
+      {/* Recently Added Section */}
+      {recentMovies.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold text-white mb-4 px-2">Recently Added</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 sm:gap-4">
+            {recentMovies.map(movie => (
+              <MovieCard
+                key={movie.id}
+                movie={movie}
+                onClick={() => onSelectMovie(movie)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Browse Categories Section */}
+      {categoriesWithCounts.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold text-white mb-4 px-2">Browse Categories</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {categoriesWithCounts.map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => onSelectCategory(cat.id)}
+                className="flex items-center justify-between p-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors text-left focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+              >
+                <div className="min-w-0">
+                  <h3 className="font-medium text-white truncate">{cat.name}</h3>
+                  <p className="text-sm text-slate-400">{cat.count.toLocaleString()} movies</p>
+                </div>
+                <ChevronRight size={20} className="text-slate-500 flex-shrink-0" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Empty state when no movies at all */}
+      {!allMovies?.length && (
+        <div className="text-center py-12">
+          <p className="text-slate-400">No movies found in your library</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+type SeriesHomeProps = {
+  allSeries: SeriesRecord[] | undefined
+  categories: CategoryRecord[]
+  itemCounts: Map<string, number> | undefined
+  onSelectCategory: (categoryId: string) => void
+  onSelectSeries: (series: SeriesRecord) => void
+}
+
+function SeriesHome({ allSeries, categories, itemCounts, onSelectCategory, onSelectSeries }: SeriesHomeProps) {
+  // Get recently added series - limit to 24
+  const recentSeries = allSeries?.slice(0, 24) ?? []
+
+  // Get categories with counts
+  const categoriesWithCounts = categories
+    .map(cat => ({
+      ...cat,
+      count: itemCounts?.get(cat.id) ?? 0,
+    }))
+    .filter(cat => cat.count > 0)
+    .slice(0, 12) // Limit to 12 categories for display
+
+  return (
+    <div className="space-y-8">
+      {/* Header */}
+      <div className="text-center py-6">
+        <h1 className="text-3xl font-bold text-white mb-2">Series</h1>
+        <p className="text-slate-400">Explore your series library</p>
+      </div>
+
+      {/* Recently Added Section */}
+      {recentSeries.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold text-white mb-4 px-2">Recently Added</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 sm:gap-4">
+            {recentSeries.map(series => (
+              <SeriesCard
+                key={series.id}
+                series={series}
+                onClick={() => onSelectSeries(series)}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Browse Categories Section */}
+      {categoriesWithCounts.length > 0 && (
+        <div>
+          <h2 className="text-xl font-semibold text-white mb-4 px-2">Browse Categories</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {categoriesWithCounts.map(cat => (
+              <button
+                key={cat.id}
+                onClick={() => onSelectCategory(cat.id)}
+                className="flex items-center justify-between p-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg transition-colors text-left focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+              >
+                <div className="min-w-0">
+                  <h3 className="font-medium text-white truncate">{cat.name}</h3>
+                  <p className="text-sm text-slate-400">{cat.count.toLocaleString()} series</p>
+                </div>
+                <ChevronRight size={20} className="text-slate-500 flex-shrink-0" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Empty state when no series at all */}
+      {!allSeries?.length && (
+        <div className="text-center py-12">
+          <p className="text-slate-400">No series found in this playlist</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+type SidebarPlaylistDropdownProps = {
+  onClose: () => void
+}
+
+function SidebarPlaylistDropdown({ onClose }: SidebarPlaylistDropdownProps) {
+  const sources = usePlaylistStore((state) => state.sources)
+  const activeSourceId = usePlaylistStore((state) => state.activeSourceId)
+  const setActiveSource = usePlaylistStore((state) => state.setActiveSource)
+  const [justSwitched, setJustSwitched] = useState<string | null>(null)
+
+  const formatExpDate = (exp: number | null) => {
+    if (!exp || exp === 0) return null
+    return new Date(exp * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  }
+
+  const handleSwitch = (id: string) => {
+    if (id === activeSourceId) { onClose(); return }
+    setActiveSource(id)
+    setJustSwitched(id)
+    setTimeout(() => { setJustSwitched(null); onClose() }, 1500)
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40" onClick={onClose} />
+      <div className="absolute left-0 top-full mt-1 w-full min-w-[280px] max-h-72 overflow-y-auto bg-slate-800 border border-slate-700 rounded-b-lg shadow-xl z-50">
+        <div className="px-3 py-2 border-b border-slate-700">
+          <p className="text-xs text-slate-400 uppercase tracking-wide">Switch Playlist</p>
+        </div>
+        {sources.length === 0 && (
+          <div className="px-3 py-4 text-center">
+            <p className="text-slate-400 text-sm">No playlists found</p>
+          </div>
+        )}
+        {sources.map((s) => {
+          const isActive = s.id === activeSourceId
+          const isJustSwitched = s.id === justSwitched
+          return (
+            <button
+              key={s.id}
+              onClick={() => handleSwitch(s.id)}
+              className={`w-full text-left px-3 py-2.5 flex flex-col gap-0.5 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50 ${isActive ? 'bg-slate-700/50' : 'hover:bg-slate-700'}`}
+            >
+              <div className="flex items-center justify-between">
+                <span className={`text-sm truncate ${isActive ? 'text-yellow-500 font-medium' : 'text-white'}`}>{s.name}</span>
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {isJustSwitched && <span className="text-xs text-green-400 font-medium">Switched</span>}
+                  {isActive && <span className="px-1.5 py-0.5 bg-yellow-500/20 text-yellow-500 text-xs rounded">Active</span>}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-xs text-slate-400">
+                <span>{s.type === 'xtream' ? 'Xtream' : 'M3U'}</span>
+                {s.type === 'xtream' && s.expDate && <span>exp: {formatExpDate(s.expDate)}</span>}
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </>
+  )
+}
+
 type ChannelCardProps = {
   channel: ChannelRecord
   onClick: () => void
@@ -466,18 +879,47 @@ type ChannelCardProps = {
 
 function ChannelCard({ channel, onClick }: ChannelCardProps) {
   const [imageError, setImageError] = useState(false)
-  const initial = channel.name.trim().charAt(0).toUpperCase()
+  const toggleFavorite = useFavoritesStore((state) => state.toggleFavorite)
+  const isFavorite = useFavoritesStore((state) => state.isFavorite)
+  const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
+  
+  if (!channel) {
+    return null
+  }
+  
+  const name = safeName(channel) || 'Untitled'
+  const initial = name.charAt(0).toUpperCase()
+  const logoUrl = channel?.logoUrl
+  const activeSource = getActiveSource()
+  const favorite = activeSource ? isFavorite('channel', channel.id) : false
+
+  const handleFavoriteClick = (e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (activeSource) {
+      console.log('[ChannelFavorite] toggle', channel.id, channel.name)
+      toggleFavorite('channel', channel.id, activeSource.id)
+    }
+  }
 
   return (
     <button
       onClick={onClick}
-      className="group bg-slate-800 rounded-lg overflow-hidden border border-slate-700 hover:border-indigo-500 transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+      className="group bg-slate-800 rounded-lg overflow-hidden border border-slate-700 hover:border-indigo-500 transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 relative"
     >
       <div className="relative aspect-square bg-slate-900 flex items-center justify-center p-4">
-        {!imageError && channel.logoUrl ? (
+        {/* Favorite heart button */}
+        <button
+          onClick={handleFavoriteClick}
+          className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center bg-black/50 hover:bg-black/70 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500/50 backdrop-blur-sm z-10"
+          aria-label={favorite ? 'Remove from favorites' : 'Add to favorites'}
+        >
+          <Heart className={`w-3.5 h-3.5 transition-colors ${favorite ? 'text-red-500 fill-red-500' : 'text-white'}`} />
+        </button>
+        {!imageError && logoUrl ? (
           <img
-            src={channel.logoUrl}
-            alt={channel.name}
+            src={logoUrl}
+            alt={name}
             className="w-full h-full object-contain"
             loading="lazy"
             onError={() => setImageError(true)}
@@ -489,8 +931,8 @@ function ChannelCard({ channel, onClick }: ChannelCardProps) {
         )}
       </div>
       <div className="p-2">
-        <p className="text-white text-sm font-medium truncate text-center" title={channel.name}>
-          {channel.name}
+        <p className="text-white text-sm font-medium truncate text-center" title={name}>
+          {name}
         </p>
       </div>
     </button>

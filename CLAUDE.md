@@ -174,6 +174,8 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 8. Chrome needs user-click for first video play
 9. crypto.randomUUID fails in non-secure contexts; use generateId() from uuid.ts
 10. crypto.subtle also requires secure context; guard with crypto.subtle check
+11. Movie metadata requires get_vod_info API call; use regex to parse VOD ID from movie ID (movie-104817 → 104817)
+12. Always check activeSource.type before making Xtream API calls (may be 'm3u-url' instead of 'xtream')
 
 ## Working style
 - Build one feature at a time, finish + commit before starting next
@@ -191,20 +193,31 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - Web Crypto AES-GCM encryption for credentials (with secure-context guard)
 - UUID generation utility (src/lib/uuid.ts) with non-secure context fallback
 - Vite dev proxy for Xtream API
-- Xtream API client (src/lib/xtream.ts) — all 7 endpoints
+- Xtream API client (src/lib/xtream.ts) — all 8 endpoints (including get_vod_info)
 - Xtream sync orchestrator (callback-based, not async generator)
 - Loading page with progress bar
 - Home page with reactive catalog counts (dexie-react-hooks useLiveQuery)
 - Re-sync button, Clear all data button
 - Strict Mode disabled
 - AppLayout shell with TopNavBar (MishaPlayer branding with yellow accent)
-- TopNavBar: Status bar with Membership/Playlist/Device ID, PIN code with eye toggle, user dropdown
+- TopNavBar: Status bar with Membership/Playlist/Device ID, PIN code with eye toggle, user dropdown, playlist expiry date, Search icon, playlist dropdown
 - Live TV page: CategorySidebar with scroll, ChannelGrid with scroll, sticky sidebar on desktop
-- ChannelCategories page: Tabs, category sidebar, channel grid preview
+- ChannelCategories page: Tabs, category sidebar, channel grid preview, mobile view state
 - Watch page: Video player (16:9 aspect ratio), channel list sidebar, fullscreen toggle, prev/next channels, keyboard navigation (↑/↓), mobile layout (40vh player / 60% list)
 - Player page layout: side-by-side on desktop, stacked on mobile
 - Scrollbars: Custom styling for category list and channel grid (10px width)
 - Height constraints: `h-screen` + `overflow-hidden` + `min-h-0` for proper flex scrolling
+- **Movies UI**: MovieCard (poster style, gradient overlay, rating badge), MovieCategories (violet selected state, filter input), MovieGrid (skeleton loading, empty state), Movies page (content header), Movies Home (Recently Added, Browse Categories)
+- **Series UI**: SeriesCard (poster style), SeriesCategories, SeriesGrid, Series page
+- **Movie Detail page** (`/movie/:movieId`): Hero with cinematic backdrop, poster, info, Play/Favorite buttons, Overview, Cast, Available Versions, "More Like This", right info panel (desktop), smart badges (quality, language, provider)
+- **Movie metadata loading**: getVodInfo API call, parses VOD ID from route (movie-104817 → 104817), loads plot, description, genre, cast, director, duration, releasedate, backdrop_path, movie_image
+- **Series Detail page** (`/series/:seriesId`): SeriesHero, SeasonSelector (horizontal tabs), EpisodeList (clickable rows), mobile refinements
+- **Series episode playback**: Episode click opens Watch page with all episodes list
+- **Search page** (`/search`): Real-time search with 300ms debounce, filter toggles, grouped results
+- **ErrorBoundary**: Catches render errors with "Go Home" and "Reload" buttons
+- **browseStore**: Navigation state persistence (section, selectedCategoryId, selectedCategoryName, scrollTop, focusedItemId, selectedSeriesId, selectedSeasonNumber, selectedEpisodeId, focusedEpisodeId, episodeListScrollTop)
+- **Hierarchical back navigation**: Episode → Series Detail → Series category grid → Series categories list
+- **Playlist switching**: `isActive` persistence in IndexedDB, auto-switch on delete
 
 ### Deferred (post-MVP)
 - M3U URL parsing (code stub exists for M3uUrlForm, tab hidden)
@@ -214,14 +227,27 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 
 ### Not yet built
 - Audio track / subtitle selection
-- Movies browsing UI (Step 12)
-- Series browsing UI (Step 12)
-- Search, Favorites, Recent channels, Continue watching, EPG
-- Settings page, Multi-language, VPS deployment
+- Favorites/Bookmarks functionality
+- Recently Watched / Continue Watching sections
+- EPG (TV Guide) for live channels
+- Settings page (language selection, playback preferences)
+- Multi-language support
+- VPS deployment
 
 ## Next feature to build
-Step 12 — Movies & Series browsing UI (full list views matching TiviMate pattern)
-Do NOT start until explicitly asked.
+None specified. Movies & Series browsing UI is complete.
+
+### Debugging in progress (2026-04-25)
+- Movie metadata loading via get_vod_info API implemented
+- Console logs added to MovieDetail.tsx for debugging:
+  - Selected movie object
+  - Route/movie ID
+  - Extracted VOD ID (parses `movie-104817` → `104817`)
+  - API URL (password masked)
+  - Raw get_vod_info response
+  - Extracted fields (plot, description, genre, cast, director, duration, releasedate, backdrop_path, movie_image)
+- Fallback chain for overview: `info.plot` → `info.description` → `movie_data.plot` → `movie_data.description` → `movie.plot` → `movie.description`
+- If provider returns empty metadata, logs: "Provider did not return movie metadata for vod_id: <id>"
 
 ## Recent Layout & Scrollbar Fixes (2026-04-23)
 ### TopNavBar Updates
@@ -264,3 +290,36 @@ For proper flex scrolling in nested containers:
 - Scrollable area: `flex-1 overflow-y-auto min-h-0`
 - Fixed elements: `flex-shrink-0`
 Without `min-h-0` on flex children, they won't shrink below their content size, breaking scroll.
+
+## Movie Metadata Implementation (2026-04-25)
+### Xtream API Updates
+- Added `XtreamVodInfo` type in `src/lib/xtreamTypes.ts` with `info` and optional `movie_data` fields
+- Added `getVodInfo()` API function in `src/lib/xtream.ts` to call `action=get_vod_info&vod_id=<id>`
+
+### MovieDetail Page Updates
+- Parses VOD ID from route parameter (e.g., `movie-104817` → extracts `104817`)
+- Fetches full VOD metadata on component mount using `getVodInfo()`
+- Added debug console logs for troubleshooting:
+  - Selected movie object
+  - Route/movie ID
+  - Extracted VOD ID
+  - API URL (password masked for security)
+  - Raw API response
+  - Extracted metadata fields
+- Uses metadata with comprehensive fallbacks:
+  - Overview: `info.plot` → `info.description` → `movie_data.plot` → `movie_data.description` → `movie.plot` → `movie.description`
+  - Year, rating, genre, cast, director, duration, release date from API or local data
+  - Backdrop and poster images from API or local data
+- Only fetches metadata for Xtream sources (checks `activeSource.type === 'xtream'`)
+- Updated `MovieRecord` type to include optional `description` field
+
+### Debugging Console Output
+All MovieDetail logs use `[MovieDetail]` prefix:
+- `[MovieDetail] Selected movie object:` — full movie record from IndexedDB
+- `[MovieDetail] Route/movie ID:` — route parameter value
+- `[MovieDetail] Extracted VOD ID:` — parsed numeric VOD ID
+- `[MovieDetail] Calling get_vod_info API:` — API URL with password masked
+- `[MovieDetail] Raw get_vod_info response:` — full API response object
+- `[MovieDetail] Extracted fields:` — all metadata fields with values
+- `[MovieDetail] Provider did not return movie metadata for vod_id:` — if API returns no data
+- `[MovieDetail] Error fetching VOD info:` — if API call fails

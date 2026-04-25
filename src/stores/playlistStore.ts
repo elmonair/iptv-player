@@ -9,6 +9,7 @@ export type M3UUrlSource = {
   name: string
   url: string
   createdAt: number
+  isActive?: boolean
 }
 
 export type XtreamSource = {
@@ -20,6 +21,7 @@ export type XtreamSource = {
   password: string
   createdAt: number
   expDate: number | null
+  isActive?: boolean
 }
 
 export type PlaylistSource = M3UUrlSource | XtreamSource
@@ -92,7 +94,8 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
     }
 
     const sortedSources = sources.sort((a, b) => b.createdAt - a.createdAt)
-    const activeSourceId = sortedSources.length > 0 ? sortedSources[0].id : null
+    const storedActive = sortedSources.find((s) => s.isActive)
+    const activeSourceId = storedActive?.id ?? sortedSources[0]?.id ?? null
 
     const activeSource = sortedSources.find((s) => s.id === activeSourceId)
     const membershipExpDate = activeSource?.type === 'xtream' ? (activeSource as XtreamSource).expDate : null
@@ -168,14 +171,33 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
 
   removeSource: async (id) => {
     await db.sources.delete(id)
-    set((state) => ({
-      sources: state.sources.filter((s) => s.id !== id),
-      activeSourceId: state.activeSourceId === id ? null : state.activeSourceId,
-    }))
+    set((state) => {
+      const remaining = state.sources.filter((s) => s.id !== id)
+      let nextActiveId = state.activeSourceId
+      if (state.activeSourceId === id || !remaining.find((s) => s.id === state.activeSourceId)) {
+        nextActiveId = remaining[0]?.id ?? null
+        if (nextActiveId) {
+          db.sources.toArray().then((all) => {
+            const updates = all.map((s) => ({ ...s, isActive: s.id === nextActiveId ? true : false }))
+            return Promise.all(updates.map((s) => db.sources.update(s.id, { isActive: s.isActive })))
+          })
+        }
+      }
+      const activeSrc = remaining.find((s) => s.id === nextActiveId)
+      const membershipExpDate = activeSrc?.type === 'xtream' ? (activeSrc as XtreamSource).expDate : null
+      return { sources: remaining, activeSourceId: nextActiveId, membershipExpDate }
+    })
   },
 
   setActiveSource: (id) => {
-    set({ activeSourceId: id })
+    db.sources.toArray().then((all) => {
+      const updates = all.map((s) => ({ ...s, isActive: s.id === id ? true : false }))
+      return Promise.all(updates.map((s) => db.sources.update(s.id, { isActive: s.isActive })))
+    })
+    const { sources } = get()
+    const activeSrc = sources.find((s) => s.id === id)
+    const membershipExpDate = activeSrc?.type === 'xtream' ? (activeSrc as XtreamSource).expDate : null
+    set({ activeSourceId: id, membershipExpDate })
   },
 
   setLastChannelId: (id) => {
