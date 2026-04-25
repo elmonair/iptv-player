@@ -699,7 +699,14 @@ export default function Watch() {
   // Detect audio and subtitle tracks
   useEffect(() => {
     const videoEl = videoRef.current
-    if (!videoEl) return
+    if (!videoEl) {
+      console.log('[Tracks] No video element yet')
+      return
+    }
+
+    console.log('[Tracks] Setting up track detection, currentType:', currentType)
+    console.log('[Tracks] audioTracks:', videoEl.audioTracks, 'length:', videoEl.audioTracks?.length)
+    console.log('[Tracks] textTracks:', videoEl.textTracks, 'length:', videoEl.textTracks?.length)
 
     const updateTracks = () => {
       // Get audio tracks
@@ -715,21 +722,28 @@ export default function Watch() {
       }
       setAudioTracks(audioList)
 
-      // Get subtitle tracks
+      // Get subtitle tracks - skip description/kind tracks that aren't captions/subtitles
       const subtitleList: Array<{ id: number; label: string; language?: string; enabled: boolean }> = []
       for (let i = 0; i < (videoEl.textTracks?.length || 0); i++) {
         const track = videoEl.textTracks![i]
-        subtitleList.push({
-          id: i,
-          label: track.label || `Subtitle ${i + 1}`,
-          language: track.language,
-          enabled: track.mode === 'showing'
-        })
+        // Only list subtitles and captions, not metadata or descriptions
+        if (track.kind === 'subtitles' || track.kind === 'captions' || track.kind === '') {
+          subtitleList.push({
+            id: i,
+            label: track.label || track.language || `Subtitle ${i + 1}`,
+            language: track.language,
+            enabled: track.mode === 'showing'
+          })
+        }
       }
       setSubtitleTracks(subtitleList)
 
-      console.log('[Watch] Audio tracks:', audioList)
-      console.log('[Watch] Subtitle tracks:', subtitleList)
+      console.log('[Tracks] Updated — audio:', audioList.length, 'subtitle:', subtitleList.length)
+      console.log('[Tracks] rendered controls:', {
+        hasAudioTracks: audioList.length > 0,
+        hasTextTracks: subtitleList.length > 0,
+        currentType
+      })
     }
 
     updateTracks()
@@ -737,8 +751,11 @@ export default function Watch() {
     const handleAudioTrackChange = () => updateTracks()
     const handleTextTrackChange = () => updateTracks()
 
+    // Listen for track events
+    videoEl.addEventListener('loadedmetadata', updateTracks)
     if (videoEl.audioTracks) {
       videoEl.audioTracks.addEventListener('change', handleAudioTrackChange)
+      videoEl.audioTracks.addEventListener('addtrack', handleTextTrackChange)
     }
     if (videoEl.textTracks) {
       videoEl.textTracks.addEventListener('addtrack', handleTextTrackChange)
@@ -747,8 +764,10 @@ export default function Watch() {
     }
 
     return () => {
+      videoEl.removeEventListener('loadedmetadata', updateTracks)
       if (videoEl.audioTracks) {
         videoEl.audioTracks.removeEventListener('change', handleAudioTrackChange)
+        videoEl.audioTracks.removeEventListener('addtrack', handleTextTrackChange)
       }
       if (videoEl.textTracks) {
         videoEl.textTracks.removeEventListener('addtrack', handleTextTrackChange)
@@ -841,7 +860,7 @@ export default function Watch() {
   }, [channelId, episodeId, navigate, zapTo, playEpisode, destroyPlayer, location])
 
   return (
-    <div className="h-[100dvh] overflow-hidden bg-slate-950 flex flex-col">
+    <div className="h-[100dvh] overflow-hidden bg-slate-950 flex flex-col select-none">
       {/* Top Navigation Bar - Fixed height 56px */}
       <header className="flex-shrink-0 h-14 flex items-center gap-2 sm:gap-4 px-2 sm:px-4 border-b border-slate-800 bg-slate-900">
         <button
@@ -904,13 +923,10 @@ export default function Watch() {
         className={`flex-1 flex flex-col lg:flex-row ${currentType === 'movie' ? 'overflow-y-auto lg:overflow-hidden' : 'overflow-hidden'}`}
         style={{ height: 'calc(100dvh - 56px)' }}
       >
-        {/* Left Side - Video + Status */}
+{/* Left Side - Video + Controls + Status */}
         <div className={`${currentType === 'movie' ? 'flex-shrink-0 lg:flex-1' : 'flex-1'} flex flex-col overflow-hidden min-h-0`}>
-          {/* Video Container - Height minus status bar */}
-          <div
-            className={`${currentType === 'movie' ? 'h-[34vh] min-h-[190px] max-h-[300px] lg:h-auto lg:max-h-none lg:flex-1' : 'flex-1'} overflow-hidden p-2`}
-            style={currentType === 'movie' ? undefined : { height: 'calc(100dvh - 56px - 40px)' }}
-          >
+          {/* Video Container - flex-1 to take remaining space */}
+          <div className="flex-1 min-h-0 overflow-hidden p-2">
             <div className="relative w-full h-full flex items-center justify-center bg-black rounded border border-slate-700">
               <video
                 ref={videoRef}
@@ -930,97 +946,104 @@ export default function Watch() {
                   </div>
                 </button>
               )}
-             </div>
+            </div>
+          </div>
 
-             {/* Audio/Subtitle Control Bar */}
-             {(currentType === 'movie' || currentType === 'episode') && (
-               <div className="flex-shrink-0 px-4 py-2 bg-slate-900 border-t border-slate-800">
-                 <div className="flex items-center justify-center gap-4">
-                   {/* Audio Selection */}
-                   <div className="relative">
-                     <button
-                       onClick={() => setShowAudioMenu(!showAudioMenu)}
-                       className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[36px]"
-                       aria-label="Select audio track"
-                     >
-                       <Volume2 size={18} className="text-slate-400" />
-                       <span className="text-sm text-slate-300">
-                         {audioTracks.length > 0 && audioTracks.find(t => t.enabled)?.label || 'Audio'}
-                       </span>
-                     </button>
-                     {showAudioMenu && audioTracks.length > 0 && (
-                       <div
-                         ref={audioMenuRef}
-                         className="absolute top-full left-0 mt-1 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 overflow-hidden"
-                       >
-                         {audioTracks.map((track, index) => (
-                           <button
-                             key={track.id}
-                             onClick={() => { handleAudioTrackSelect(index); setShowAudioMenu(false); }}
-                             className="w-full px-3 py-2 flex items-center justify-between hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
-                           >
-                             <div className="flex flex-col items-start">
-                               <span className="text-sm text-slate-300">{track.label}</span>
-                               {track.language && (
-                                 <span className="text-xs text-slate-500">{track.language}</span>
-                               )}
-                             </div>
-                             {track.enabled && <Check size={16} className="text-green-500" />}
-                           </button>
-                         ))}
-                       </div>
-                     )}
-                   </div>
+          {/* Audio/Subtitle Control Bar - shown for movies and episodes */}
+          {(currentType === 'movie' || currentType === 'episode') && (
+            <div className="flex-shrink-0 px-4 py-2 bg-slate-900 border-t border-slate-800 select-none">
+              <div className="flex items-center justify-center gap-4">
+                {/* Audio Selection */}
+                <div className="relative">
+                  <button
+                    onClick={() => { console.log('[Tracks] audioTracks:', videoRef.current?.audioTracks); setShowAudioMenu(!showAudioMenu); }}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[36px] disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label="Select audio track"
+                    disabled={audioTracks.length === 0}
+                  >
+                    <Volume2 size={18} className="text-slate-400" />
+                    <span className="text-sm text-slate-300">
+                      {audioTracks.length > 0 ? (audioTracks.find(t => t.enabled)?.label || `Audio (${audioTracks.length})`) : 'Audio'}
+                    </span>
+                  </button>
+                  {showAudioMenu && audioTracks.length > 0 && (
+                    <div
+                      ref={audioMenuRef}
+                      className="absolute top-full left-0 mt-1 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 overflow-hidden"
+                    >
+                      {audioTracks.map((track, index) => (
+                        <button
+                          key={track.id}
+                          onClick={() => { handleAudioTrackSelect(index); setShowAudioMenu(false); }}
+                          className="w-full px-3 py-2 flex items-center justify-between hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
+                        >
+                          <div className="flex flex-col items-start">
+                            <span className="text-sm text-slate-300">{track.label}</span>
+                            {track.language && (
+                              <span className="text-xs text-slate-500">{track.language}</span>
+                            )}
+                          </div>
+                          {track.enabled && <Check size={16} className="text-green-500" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
 
-                   {/* Subtitle Selection */}
-                   <div className="relative">
-                     <button
-                       onClick={() => setShowSubtitleMenu(!showSubtitleMenu)}
-                       className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[36px]"
-                       aria-label="Select subtitle track"
-                     >
-                       <Subtitles size={18} className="text-slate-400" />
-                       <span className="text-sm text-slate-300">
-                         {subtitleTracks.length > 0 && subtitleTracks.find(t => t.enabled)?.label || 'Subtitles'}
-                       </span>
-                       {subtitleTracks.some(t => t.enabled) && (
-                         <div className="w-2 h-2 bg-green-500 rounded-full" />
-                       )}
-                     </button>
-                     {showSubtitleMenu && (
-                       <div
-                         ref={subtitleMenuRef}
-                         className="absolute top-full left-0 mt-1 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 overflow-hidden"
-                       >
-                         <button
-                           onClick={() => { handleToggleSubtitles(); setShowSubtitleMenu(false); }}
-                           className="w-full px-3 py-2 flex items-center justify-between hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50 border-b border-slate-700"
-                         >
-                           <span className="text-sm text-slate-300">Off</span>
-                           {!subtitleTracks.some(t => t.enabled) && <Check size={16} className="text-green-500" />}
-                         </button>
-                         {subtitleTracks.map((track, index) => (
-                           <button
-                             key={track.id}
-                             onClick={() => { handleSubtitleTrackSelect(index); setShowSubtitleMenu(false); }}
-                             className="w-full px-3 py-2 flex items-center justify-between hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
-                           >
-                             <div className="flex flex-col items-start">
-                               <span className="text-sm text-slate-300">{track.label}</span>
-                               {track.language && (
-                                 <span className="text-xs text-slate-500">{track.language}</span>
-                               )}
-                             </div>
-                             {track.enabled && <Check size={16} className="text-green-500" />}
-                           </button>
-                         ))}
-                       </div>
-                     )}
-                   </div>
-                 </div>
-               </div>
-             )}
-           </div>
+                {/* Subtitle Selection */}
+                <div className="relative">
+                  <button
+                    onClick={() => { console.log('[Tracks] textTracks:', videoRef.current?.textTracks); setShowSubtitleMenu(!showSubtitleMenu); }}
+                    className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[36px] disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label="Select subtitle track"
+                    disabled={subtitleTracks.length === 0}
+                  >
+                    <Subtitles size={18} className="text-slate-400" />
+                    <span className="text-sm text-slate-300">
+                      {subtitleTracks.length > 0 ? (subtitleTracks.find(t => t.enabled)?.label || `Subs (${subtitleTracks.length})`) : 'Subs'}
+                    </span>
+                    {subtitleTracks.some(t => t.enabled) && (
+                      <div className="w-2 h-2 bg-green-500 rounded-full" />
+                    )}
+                  </button>
+                  {showSubtitleMenu && (
+                    <div
+                      ref={subtitleMenuRef}
+                      className="absolute top-full left-0 mt-1 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 overflow-hidden"
+                    >
+                      <button
+                        onClick={() => { handleToggleSubtitles(); setShowSubtitleMenu(false); }}
+                        className="w-full px-3 py-2 flex items-center justify-between hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50 border-b border-slate-700"
+                      >
+                        <span className="text-sm text-slate-300">Off</span>
+                        {!subtitleTracks.some(t => t.enabled) && <Check size={16} className="text-green-500" />}
+                      </button>
+                      {subtitleTracks.map((track, index) => (
+                        <button
+                          key={track.id}
+                          onClick={() => { handleSubtitleTrackSelect(index); setShowSubtitleMenu(false); }}
+                          className="w-full px-3 py-2 flex items-center justify-between hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
+                        >
+                          <div className="flex flex-col items-start">
+                            <span className="text-sm text-slate-300">{track.label}</span>
+                            {track.language && (
+                              <span className="text-xs text-slate-500">{track.language}</span>
+                            )}
+                          </div>
+                          {track.enabled && <Check size={16} className="text-green-500" />}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* No tracks available message */}
+                {audioTracks.length === 0 && subtitleTracks.length === 0 && (
+                  <span className="text-xs text-slate-500">No audio/subtitle tracks available for this stream</span>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Status Bar - Fixed height 40px */}
           <div className="flex-shrink-0 h-10 px-4 flex items-center justify-between bg-slate-900 border-t border-slate-800">
