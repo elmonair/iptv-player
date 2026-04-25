@@ -176,12 +176,29 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 10. crypto.subtle also requires secure context; guard with crypto.subtle check
 11. Movie metadata requires get_vod_info API call; use regex to parse VOD ID from movie ID (movie-104817 → 104817)
 12. Always check activeSource.type before making Xtream API calls (may be 'm3u-url' instead of 'xtream')
+13. SeriesDetail: useLiveQuery returns `undefined` before query finishes — distinguish from `null` (not found) by checking `series === undefined` explicitly
+14. SeriesDetail: Reset `loading=true` when route parameter changes (useEffect with [seriesId]), otherwise stale `loading=false` causes wrong render
+15. SeriesDetail: API data (seriesInfo) may not be loaded when component renders — use optional chaining `seriesInfo?.info` not `seriesInfo.info` to avoid crashes
+16. ChannelCard heart button must use `e.stopPropagation()` to prevent card click (channel play) from firing when clicking heart
 
 ## Working style
 - Build one feature at a time, finish + commit before starting next
 - Commit after every working milestone with descriptive message
 - If unclear, ask the user rather than guess
 - Comment the "why" for non-obvious code, not the "what"
+
+## Latest Commit
+**Commit**: `c0135ae` — "Fix series loading and channel favorites" (2026-04-25)
+**Changes**: 31 files changed, 2985 insertions(+), 608 deletions(-)
+**Key changes**:
+- Fixed SeriesDetail loading/not-found flash (reset loading on seriesId change, treat series===undefined as loading, null-safe seriesInfo access)
+- Added channel favorites heart button to inline ChannelCard in ChannelCategories.tsx
+- Added favoritesStore (Zustand) with FavoriteRecord type in Dexie v4 schema
+- Added heart buttons to MovieCard, SeriesCard, MovieDetail, SeriesDetail, Watch page, EpisodeList
+- Added Favorites category to Channels/Movies/Series sidebar tabs
+- Created shared metadata utilities in src/lib/metadata.ts (parseTitle, formatRating, formatYear, formatDuration, formatReleaseDate)
+- Created MovieDetail page with full metadata loading via get_vod_info API
+- Created SeriesDetail page with unified visual design matching MovieDetail
 
 ## Current project state
 
@@ -218,6 +235,13 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - **browseStore**: Navigation state persistence (section, selectedCategoryId, selectedCategoryName, scrollTop, focusedItemId, selectedSeriesId, selectedSeasonNumber, selectedEpisodeId, focusedEpisodeId, episodeListScrollTop)
 - **Hierarchical back navigation**: Episode → Series Detail → Series category grid → Series categories list
 - **Playlist switching**: `isActive` persistence in IndexedDB, auto-switch on delete
+- **Favorites system**: `favoritesStore` (Zustand), `FavoriteRecord` type in Dexie (id, itemType, itemId, sourceId, addedAt), heart buttons on MovieCard, SeriesCard, ChannelCard, MovieDetail, SeriesDetail, Watch page, EpisodeList; Favorites category in all 3 tabs
+- **Dexie schema v4**: favorites table added; series/movies/channels have `externalId` index
+- **Series detail loading fix**: Loading state separate from not-found; uses `db.series.toArray().find()` instead of indexed externalId query to avoid schema errors
+- **formatRating crash fix**: Handles string ratings (e.g. "8.5"), null, undefined, empty; returns fallback 'N/A' instead of crashing; no `.toFixed()` direct calls anywhere
+- **Unified detail page design**: MovieDetail and SeriesDetail share same visual style (backdrop, poster, badges, buttons, info panel)
+- **Channel favorites bug fix**: Heart button added to inline ChannelCard in ChannelCategories.tsx with stopPropagation
+- **Series loading flash bug fix**: Reset loading on seriesId change, treat series===undefined as loading, null-safe seriesInfo access
 
 ### Deferred (post-MVP)
 - M3U URL parsing (code stub exists for M3uUrlForm, tab hidden)
@@ -227,7 +251,6 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 
 ### Not yet built
 - Audio track / subtitle selection
-- Favorites/Bookmarks functionality
 - Recently Watched / Continue Watching sections
 - EPG (TV Guide) for live channels
 - Settings page (language selection, playback preferences)
@@ -235,19 +258,11 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - VPS deployment
 
 ## Next feature to build
-None specified. Movies & Series browsing UI is complete.
-
-### Debugging in progress (2026-04-25)
-- Movie metadata loading via get_vod_info API implemented
-- Console logs added to MovieDetail.tsx for debugging:
-  - Selected movie object
-  - Route/movie ID
-  - Extracted VOD ID (parses `movie-104817` → `104817`)
-  - API URL (password masked)
-  - Raw get_vod_info response
-  - Extracted fields (plot, description, genre, cast, director, duration, releasedate, backdrop_path, movie_image)
-- Fallback chain for overview: `info.plot` → `info.description` → `movie_data.plot` → `movie_data.description` → `movie.plot` → `movie.description`
-- If provider returns empty metadata, logs: "Provider did not return movie metadata for vod_id: <id>"
+Choose one of the following:
+1. **Recently Watched / Continue Watching** — Track last played items, resume from where you left off
+2. **Settings Page** — Language selection, playback preferences, clear cache, logout
+3. **EPG (TV Guide)** — Current/next program for live channels
+4. **Audio/Subtitle Selection** — For movies/episodes with multiple tracks
 
 ## Recent Layout & Scrollbar Fixes (2026-04-23)
 ### TopNavBar Updates
@@ -323,3 +338,86 @@ All MovieDetail logs use `[MovieDetail]` prefix:
 - `[MovieDetail] Extracted fields:` — all metadata fields with values
 - `[MovieDetail] Provider did not return movie metadata for vod_id:` — if API returns no data
 - `[MovieDetail] Error fetching VOD info:` — if API call fails
+
+## Shared Metadata Utilities (2026-04-25)
+Created `src/lib/metadata.ts` with reusable utilities:
+- `parseTitle(name: string)` — extracts cleanTitle, year, quality, language, provider from movie/series names
+- `getCleanTitleForComparison(name: string)` — returns clean title for matching "More Like This" content
+- `formatRating(rating: unknown, fallback = 'N/A'): string` — safe formatter handles string, number, null, undefined, empty strings; always returns string, never crashes
+- `formatYear(year: unknown, parsedYear?: number): string | null`
+- `formatDuration(duration: unknown): string | null`
+- `formatReleaseDate(date: unknown): string | null`
+
+All components now use these utilities instead of inline formatting, ensuring consistent safe handling across the app.
+
+## Series Detail Page Implementation (2026-04-25)
+- Matches MovieDetail visual design: cinematic backdrop, poster, badges (rating, year, genre, cast, director, release date), Play/Favorite buttons, Overview, Cast, Director, right info panel (desktop)
+- SeasonSelector: horizontal tabs for seasons, persists selected season in browseStore
+- EpisodeList: clickable rows with play button and heart favorite button, episode number, title, duration
+- Loading state: separate from "not found" — shows spinner until useLiveQuery returns (not undefined)
+- API: calls `getSeriesInfo()` on mount, fetches all seasons/episodes for the series
+- Favorites: heart button on series header toggles series favorite; heart on each episode toggles episode favorite
+- Navigation: back button returns to previous category or Series tab; Escape/Backspace keyboard shortcuts
+- Mobile refinements: poster size, layout, spacing
+
+## Favorites System Implementation (2026-04-25)
+### FavoritesStore (Zustand)
+- `loadFavorites(sourceId)` — loads all favorites for a playlist from IndexedDB
+- `toggleFavorite(itemType, itemId, sourceId)` — adds or removes a favorite
+- `isFavorite(itemType, itemId)` — checks if item is favorited
+- `getFavoritesByType(itemType)` — returns all favorites of a given type
+- `clearFavorites()` — clears all favorites
+
+### IndexedDB Schema (Dexie v4)
+- `favorites` table: `id` (string, primary key), `itemType` ('channel' | 'movie' | 'series' | 'episode'), `itemId` (string), `sourceId` (string), `addedAt` (number)
+- Composite type-prefixed IDs prevent collisions: `channel:`, `movie:`, `series:`, `episode:`
+- Favorites loaded in App.tsx on mount and when activeSourceId changes
+
+### Heart Buttons Everywhere
+- **ChannelCard** (inline in ChannelCategories.tsx and src/components/live/ChannelCard.tsx): heart with stopPropagation
+- **MovieCard** (src/components/movies/MovieCard.tsx): heart on top-right
+- **SeriesCard** (src/components/series/SeriesCard.tsx): heart on top-right
+- **MovieDetail** (src/pages/MovieDetail.tsx): heart next to Play button
+- **SeriesDetail** (src/pages/SeriesDetail.tsx): heart next to Play button
+- **Watch** (src/pages/Watch.tsx): heart in player control bar
+- **EpisodeList** (src/components/series/EpisodeList.tsx): heart on each episode row
+
+### Favorites Category in Sidebar
+- Appears in Channels/Movies/Series tabs when items are favorited
+- Shows count of favorited items for that tab
+- Clicking filters grid to show only favorited items
+- Uses Dexie `.where('id').anyOf(favoriteIds).toArray()` for efficient queries
+
+## Recent Bug Fixes (2026-04-25)
+### Bug 1 — Channel Favorites Missing
+**Problem**: Channel cards in Channels tab had no heart button (unlike Movies/Series).
+
+**Solution**: Added heart button to inline `ChannelCard` component in `src/pages/ChannelCategories.tsx`:
+- Imported `Heart` from lucide-react and `useFavoritesStore`
+- Added heart button in top-right with `bg-black/50 hover:bg-black/70` background
+- Used `e.stopPropagation()` to prevent channel play on favorite click
+- Filled red (`text-red-500 fill-red-500`) when favorited, outlined white when not
+- Favorites category already existed in sidebar and shows favorited channels
+
+**Files changed**: `src/pages/ChannelCategories.tsx` (added imports, updated ChannelCard component)
+
+**Console logs added**: `[ChannelFavorite] toggle {channelId} {channelName}`
+
+### Bug 2 — Series "Not Found" Flash
+**Problem**: Clicking a series showed "Series not found" briefly, then the series appeared. `loading` wasn't reset on navigation, and `series === undefined` was treated as "not found".
+
+**Solution** (three changes in `src/pages/SeriesDetail.tsx`):
+
+1. **Reset loading on seriesId change** (lines 65-69): Added `useEffect` that sets `loading=true` and clears `error`/`seriesInfo` when `seriesId` changes. Replaced old `useEffect` that only set `loading=false` when series resolved.
+
+2. **Treat `undefined` as loading** (line 244): Changed guard from `if (loading)` to `if (series === undefined || loading)`. Now `useLiveQuery`'s initial `undefined` state shows spinner, not "not found" error.
+
+3. **Null-safe seriesInfo access** (lines 284-296): Changed `seriesInfo.info` → `seriesInfo?.info` and all `info.*` → `info?.*`. Prevents crash if `seriesInfo` hasn't loaded yet when component renders early.
+
+4. **Added debug console logs**:
+   - `[SeriesDetail] params {seriesId}` — logs route parameter
+   - `[SeriesDetail] loading {bool} seriesIsUndefined {bool} series {...}` — logs loading state, undefined check, and series object
+
+**Result**: Correct render order: loading → spinner; loaded and no series → "not found"; loaded and series exists → detail page. No more flash.
+
+**Files changed**: `src/pages/SeriesDetail.tsx`
