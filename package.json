@@ -14,6 +14,7 @@
     "@tanstack/react-virtual": "^3.13.24",
     "dexie": "^4.4.2",
     "dexie-react-hooks": "^4.4.0",
+    "hls.js": "^1.6.16",
     "lucide-react": "^1.8.0",
     "mpegts.js": "^1.8.0",
     "react": "^19.2.5",
