@@ -13,12 +13,14 @@ import SearchPage from './pages/SearchPage'
 import ErrorBoundary from './components/ErrorBoundary'
 import { usePlaylistStore } from './stores/playlistStore'
 import { useFavoritesStore } from './stores/favoritesStore'
+import { useWatchHistoryStore } from './stores/watchHistoryStore'
 
 function AppContent() {
   const navigate = useNavigate()
   const location = useLocation()
   const { loaded, loadSourcesFromDb, getActiveSource, activeSourceId } = usePlaylistStore()
   const loadFavorites = useFavoritesStore((state) => state.loadFavorites)
+  const loadWatchHistory = useWatchHistoryStore((state) => state.loadWatchHistory)
   const initialRouteHandled = useRef(false)
 
   useEffect(() => {
@@ -40,6 +42,7 @@ function AppContent() {
           const activeSource = getActiveSource()
           if (activeSource) {
             loadFavorites(activeSource.id).catch(console.error)
+            loadWatchHistory(activeSource.id).catch(console.error)
           }
         }
         initialRouteHandled.current = true
@@ -48,6 +51,7 @@ function AppContent() {
       const activeSource = getActiveSource()
       if (activeSource) {
         loadFavorites(activeSource.id).catch(console.error)
+        loadWatchHistory(activeSource.id).catch(console.error)
       }
       initialRouteHandled.current = true
     }
@@ -57,8 +61,9 @@ function AppContent() {
   useEffect(() => {
     if (activeSourceId) {
       loadFavorites(activeSourceId).catch(console.error)
+      loadWatchHistory(activeSourceId).catch(console.error)
     }
-  }, [activeSourceId, loadFavorites])
+  }, [activeSourceId, loadFavorites, loadWatchHistory])
 
   if (!loaded) {
     return (

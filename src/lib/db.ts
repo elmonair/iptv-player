@@ -106,6 +106,16 @@ export type FavoriteRecord = {
   addedAt: number
 }
 
+export type WatchHistoryRecord = {
+  id: string
+  itemType: 'channel' | 'movie' | 'episode'
+  itemId: string
+  sourceId: string
+  position: number
+  duration: number | null
+  lastWatched: number
+}
+
 class IptvDatabase extends Dexie {
   sources!: Table<PlaylistSourceRecord>
   categories!: Table<CategoryRecord>
@@ -115,6 +125,7 @@ class IptvDatabase extends Dexie {
   episodes!: Table<EpisodeRecord>
   syncMetadata!: Table<SyncMetadataRecord>
   favorites!: Table<FavoriteRecord>
+  watchHistory!: Table<WatchHistoryRecord>
 
   constructor() {
     super('IptvDatabase')
@@ -152,6 +163,18 @@ class IptvDatabase extends Dexie {
       episodes: 'id, seriesId, seasonNumber, episodeNumber, externalId',
       syncMetadata: 'sourceId',
       favorites: 'id, itemType, itemId, sourceId, addedAt',
+    })
+
+    this.version(5).stores({
+      sources: 'id, type, createdAt',
+      categories: 'id, sourceId, type, externalId',
+      channels: 'id, sourceId, categoryId, name, externalId',
+      movies: 'id, sourceId, categoryId, name, year, externalId',
+      series: 'id, sourceId, categoryId, name, externalId',
+      episodes: 'id, seriesId, seasonNumber, episodeNumber, externalId',
+      syncMetadata: 'sourceId',
+      favorites: 'id, itemType, itemId, sourceId, addedAt',
+      watchHistory: 'id, itemType, itemId, sourceId, lastWatched',
     })
   }
 }

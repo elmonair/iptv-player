@@ -6,6 +6,7 @@ import { db } from '../lib/db'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
 import { useFavoritesStore } from '../stores/favoritesStore'
+import { useWatchHistoryStore } from '../stores/watchHistoryStore'
 import { getSeriesInfo } from '../lib/xtream'
 import type { ChannelRecord, MovieRecord } from '../lib/db'
 
@@ -47,6 +48,7 @@ export default function Watch() {
   const categoryItemsRef = useRef<WatchableItem[]>([])
   const categoryIndexRef = useRef<number>(-1)
   const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const activeItemRef = useRef<HTMLButtonElement>(null)
 
   const [status, setStatus] = useState<WatchStatus>('loading')
@@ -66,6 +68,8 @@ export default function Watch() {
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
   const toggleFavorite = useFavoritesStore((state) => state.toggleFavorite)
   const isFavorite = useFavoritesStore((state) => state.isFavorite)
+  const updateWatchProgress = useWatchHistoryStore((state) => state.updateWatchProgress)
+  const getWatchHistory = useWatchHistoryStore((state) => state.getWatchHistory)
 
   const handleFavoriteToggle = async () => {
     if (!activeSource || !currentItemId || !currentType) return
@@ -97,7 +101,35 @@ export default function Watch() {
       clearInterval(statsIntervalRef.current)
       statsIntervalRef.current = null
     }
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current)
+      progressIntervalRef.current = null
+    }
     setVideoInfo(null)
+  }, [])
+
+  const startProgressTracking = useCallback((itemType: 'channel' | 'movie' | 'episode', itemId: string) => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current)
+    }
+    if (!activeSource) return
+
+    const saveProgress = () => {
+      if (!videoRef.current || !activeSource) return
+      const currentTime = videoRef.current.currentTime
+      const duration = videoRef.current.duration
+      updateWatchProgress(itemType, itemId, activeSource.id, currentTime, duration)
+      console.log('[Watch] Saved progress:', itemType, itemId, 'position:', currentTime)
+    }
+
+    progressIntervalRef.current = setInterval(saveProgress, 10000)
+  }, [activeSource, updateWatchProgress])
+
+  const stopProgressTracking = useCallback(() => {
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current)
+      progressIntervalRef.current = null
+    }
   }, [])
 
   const handlePlayClick = async () => {
@@ -205,6 +237,14 @@ export default function Watch() {
     const videoEl = videoRef.current
     videoEl.src = streamUrl
 
+    const episodeId = String(episodeInfo.streamId)
+    const history = getWatchHistory()
+    const savedProgress = history.find(h => h.itemType === 'episode' && h.itemId === episodeId)
+
+    if (savedProgress && savedProgress.position > 0) {
+      console.log('[Watch] Found saved progress for episode:', savedProgress.position)
+    }
+
     videoEl.oncanplay = () => {
       if (videoEl.videoWidth && videoEl.videoHeight) {
         setVideoInfo({
@@ -213,9 +253,14 @@ export default function Watch() {
           fps: 0,
         })
       }
+      if (savedProgress && savedProgress.position > 0 && videoEl.duration > savedProgress.position) {
+        videoEl.currentTime = savedProgress.position
+        console.log('[Watch] Resumed from position:', savedProgress.position)
+      }
     }
     videoEl.onplaying = () => {
       setStatus('playing')
+      startProgressTracking('episode', episodeId)
     }
     videoEl.onerror = () => {
       console.error('[Watch] Episode video error:', videoEl.error)
@@ -240,7 +285,7 @@ export default function Watch() {
         setErrorMsg(err instanceof Error ? err.message : String(err))
       }
     }
-  }, [destroyPlayer])
+  }, [destroyPlayer, getWatchHistory, startProgressTracking])
 
   const zapTo = useCallback(async (targetItemId: string) => {
     if (!targetItemId || !videoRef.current) return
@@ -394,6 +439,15 @@ export default function Watch() {
       }
     } else {
       videoEl.src = streamUrl
+
+      const movieId = (item.data as MovieRecord).id
+      const history = getWatchHistory()
+      const savedProgress = history.find(h => h.itemType === 'movie' && h.itemId === movieId)
+
+      if (savedProgress && savedProgress.position > 0) {
+        console.log('[Watch] Found saved progress for movie:', savedProgress.position)
+      }
+
       videoEl.oncanplay = () => {
         if (videoEl.videoWidth && videoEl.videoHeight) {
           setVideoInfo({
@@ -402,9 +456,14 @@ export default function Watch() {
             fps: 0,
           })
         }
+        if (savedProgress && savedProgress.position > 0 && videoEl.duration > savedProgress.position) {
+          videoEl.currentTime = savedProgress.position
+          console.log('[Watch] Resumed from position:', savedProgress.position)
+        }
       }
       videoEl.onplaying = () => {
         setStatus('playing')
+        startProgressTracking('movie', movieId)
       }
       videoEl.onerror = () => {
         console.error('[Watch] Movie video error:', videoEl.error)
@@ -430,7 +489,7 @@ export default function Watch() {
         }
       }
     }
-  }, [destroyPlayer, setLastChannelId])
+  }, [destroyPlayer, getWatchHistory, startProgressTracking, setLastChannelId])
 
   const handleFullscreenToggle = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -513,6 +572,12 @@ export default function Watch() {
     document.addEventListener('fullscreenchange', handler)
     return () => document.removeEventListener('fullscreenchange', handler)
   }, [])
+
+  useEffect(() => {
+    return () => {
+      stopProgressTracking()
+    }
+  }, [stopProgressTracking])
 
   useEffect(() => {
     if (activeItemRef.current) {

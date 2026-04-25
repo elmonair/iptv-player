@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Film, Tv, Clapperboard, Settings, User, Info, Plus, RefreshCw, Trash2, CheckCircle } from 'lucide-react'
+import { Film, Tv, Clapperboard, Settings, User, Info, Plus, RefreshCw, Trash2, CheckCircle, Clock, Play } from 'lucide-react'
 import { TopNavBar } from '../components/TopNavBar'
 import { AddPlaylistModal } from '../components/AddPlaylistModal'
 import { EditPlaylistModal } from '../components/EditPlaylistModal'
 import { usePlaylistStore } from '../stores/playlistStore'
+import { useWatchHistoryStore } from '../stores/watchHistoryStore'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../lib/db'
 import type { XtreamSource } from '../stores/playlistStore'
@@ -101,6 +102,9 @@ export default function HomePage() {
             </div>
           </div>
         </div>
+
+        {/* Continue Watching */}
+        <ContinueWatchingSection navigate={navigate} />
 
         {/* Quick Actions */}
         <div>
@@ -204,6 +208,146 @@ function QuickActionButton({ icon, label, onClick }: QuickActionButtonProps) {
     >
       <div className="text-yellow-500">{icon}</div>
       <span className="text-sm font-medium text-white">{label}</span>
+    </button>
+  )
+}
+
+type ContinueWatchingSectionProps = {
+  navigate: (path: string) => void
+}
+
+function ContinueWatchingSection({ navigate }: ContinueWatchingSectionProps) {
+  const getContinueWatching = useWatchHistoryStore((state) => state.getContinueWatching)
+  const continueWatching = getContinueWatching()
+
+  if (continueWatching.length === 0) return null
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-semibold text-white flex items-center gap-2">
+          <Clock size={20} className="text-yellow-500" />
+          Continue Watching
+        </h2>
+      </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {continueWatching.slice(0, 6).map((item) => (
+          <ContinueWatchingCard key={item.id} item={item} navigate={navigate} />
+        ))}
+      </div>
+    </div>
+  )
+}
+
+type ContinueWatchingCardProps = {
+  item: {
+    itemType: 'channel' | 'movie' | 'episode'
+    itemId: string
+    position: number
+    duration: number | null
+  }
+  navigate: (path: string) => void
+}
+
+function ContinueWatchingCard({ item, navigate }: ContinueWatchingCardProps) {
+  const content = useLiveQuery(
+    async () => {
+      if (item.itemType === 'channel') {
+        return db.channels.where('id').equals(item.itemId).first()
+      } else if (item.itemType === 'movie') {
+        return db.movies.where('id').equals(item.itemId).first()
+      } else if (item.itemType === 'episode') {
+        const episode = await db.episodes.where('id').equals(item.itemId).first()
+        if (episode) {
+          const series = await db.series.where('id').equals(episode.seriesId).first()
+          return { episode, series }
+        }
+      }
+      return null
+    },
+    [item.itemId, item.itemType],
+  )
+
+  if (!content) return null
+
+  const handleClick = () => {
+    if (item.itemType === 'channel') {
+      navigate(`/watch/channel/${encodeURIComponent(item.itemId)}`)
+    } else if (item.itemType === 'movie') {
+      navigate(`/watch/movie/${encodeURIComponent(item.itemId)}`)
+    } else if (item.itemType === 'episode' && 'episode' in content) {
+      const { episode, series } = content
+      const seriesId = series?.externalId || series?.id
+      navigate(`/watch/episode/${episode.id}`, {
+        state: {
+          seriesId,
+          seriesName: series?.name || 'Unknown',
+          seasonNumber: episode.seasonNumber,
+          episodeNumber: episode.episodeNumber,
+          episodeTitle: episode.title || `Episode ${episode.episodeNumber}`,
+          containerExtension: episode.containerExtension,
+          streamId: episode.streamId,
+        },
+      })
+    }
+  }
+
+  const progressPercent = item.duration && item.duration > 0 ? (item.position / item.duration) * 100 : 0
+  const timeRemaining = item.duration && item.duration > 0 ? Math.floor((item.duration - item.position) / 60) : 0
+
+  let title = ''
+  let subtitle = ''
+  let imageSrc = ''
+
+  if (item.itemType === 'channel') {
+    const channel = content as { name: string; logoUrl?: string }
+    title = channel.name
+    subtitle = 'Live Channel'
+    imageSrc = channel.logoUrl || ''
+  } else if (item.itemType === 'movie') {
+    const movie = content as { name: string; logoUrl?: string; backdropUrl?: string }
+    title = movie.name
+    subtitle = 'Movie'
+    imageSrc = movie.backdropUrl || movie.logoUrl || ''
+  } else if (item.itemType === 'episode' && 'episode' in content) {
+    const { episode, series } = content
+    title = episode.title || `Episode ${episode.episodeNumber}`
+    subtitle = `${series?.name || 'Unknown'} - S${episode.seasonNumber}E${episode.episodeNumber}`
+    imageSrc = series?.backdropUrl || series?.logoUrl || ''
+  }
+
+  return (
+    <button
+      onClick={handleClick}
+      className="bg-slate-800 rounded-xl overflow-hidden border border-slate-700 hover:border-yellow-500 transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-yellow-500/50 group"
+    >
+      <div className="relative aspect-video bg-slate-900">
+        {imageSrc ? (
+          <img src={imageSrc} alt={title} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center bg-slate-800">
+            <Play size={32} className="text-slate-600" />
+          </div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+        <div className="absolute bottom-0 left-0 right-0 p-3">
+          <p className="text-white text-sm font-medium truncate mb-1">{title}</p>
+          <p className="text-slate-300 text-xs truncate mb-2">{subtitle}</p>
+          {item.duration && item.duration > 0 && (
+            <>
+              <div className="w-full h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                <div className="h-full bg-yellow-500 transition-all" style={{ width: `${progressPercent}%` }} />
+              </div>
+              <p className="text-slate-400 text-xs mt-1">
+                {timeRemaining > 0 ? `${timeRemaining} min left` : 'Almost done'}
+              </p>
+            </>
+          )}
+        </div>
+        <div className="absolute top-2 right-2 w-8 h-8 flex items-center justify-center bg-black/50 hover:bg-black/70 rounded-full transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100">
+          <Play size={14} className="text-white fill-white ml-0.5" />
+        </div>
+      </div>
     </button>
   )
 }
