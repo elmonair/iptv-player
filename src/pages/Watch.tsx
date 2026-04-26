@@ -438,12 +438,18 @@ export default function Watch() {
       return
     }
 
-    const streamId = item.type === 'channel' ? (item.data as ChannelRecord).streamId : (item.data as MovieRecord).streamId
-    console.log('[Watch] Zap to:', { type: item.type, name: getItemName(item), streamId, id: item.data.id })
+    console.log('[Watch] Zap to:', {
+      type: item.type,
+      name: getItemName(item),
+      streamId: (item.data as any).streamId,
+      id: item.data.id,
+      categoryId: item.data.categoryId
+    })
     setItemName(getItemName(item))
     setCurrentItemId(item.data.id)
     setCurrentType(item.type)
     setStatus('loading')
+    setErrorMsg(null)
     setVideoInfo(null)
 
     const allItems = allItemsRef.current
@@ -466,6 +472,13 @@ export default function Watch() {
     const streamUrl = buildStreamUrl(source, item)
     const safeUrl = streamUrl.replace(source.username, '[USER]').replace(source.password, '[PASS]')
     console.log('[Watch] Stream URL:', safeUrl)
+    console.log('[Watch Current Channel]', {
+      id: item.data.id,
+      name: getItemName(item),
+      streamId: (item.data as any).streamId,
+      categoryId: item.data.categoryId,
+      streamUrl: safeUrl
+    })
 
     const videoEl = videoRef.current
 
@@ -538,7 +551,14 @@ export default function Watch() {
         }
         videoEl.onstalled = () => console.log('[Watch] video stalled event')
         videoEl.onerror = () => {
-          console.error('[Watch] video error:', videoEl.error)
+          console.error('[Watch] video error:', {
+            error: videoEl.error,
+            errorCode: videoEl.error?.code,
+            errorMessage: videoEl.error?.message,
+            streamUrl,
+            currentItemId,
+            itemName
+          })
           setStatus('error')
           const errCode = videoEl.error?.code ?? 0
           if (errCode === 4) {
@@ -912,6 +932,7 @@ export default function Watch() {
             <div className="flex-1 min-h-0 overflow-hidden p-2">
               <div className="relative w-full h-full flex items-center justify-center bg-black rounded border border-slate-700">
                 <video
+                  key={currentItemId}
                   ref={videoRef}
                   controls
                   playsInline
@@ -974,6 +995,12 @@ export default function Watch() {
               </div>
               {/* Scrollable List */}
               <div className="flex-1 overflow-y-auto min-h-0">
+                {categoryItems.length > 0 && console.log('[Watch Live Sidebar]', {
+                  categoryId: categoryName,
+                  itemCount: categoryItems.length,
+                  currentItemId,
+                  items: categoryItems.map(i => ({ id: i.data.id, name: getItemName(i), streamId: (i.data as any).streamId }))
+                })}
                 <div className="flex flex-col gap-1 p-2">
                   {categoryItems.map((item) => {
                     if (!item) return null
