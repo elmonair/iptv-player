@@ -327,9 +327,12 @@ function ContinueWatchingCard({ item, navigate }: ContinueWatchingCardProps) {
   }
 
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       onClick={handleClick}
-      className="bg-slate-800 rounded-xl overflow-hidden border border-slate-700 hover:border-yellow-500 transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-yellow-500/50 group"
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleClick() }}
+      className="bg-slate-800 rounded-xl overflow-hidden border border-slate-700 hover:border-yellow-500 transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-yellow-500/50 group cursor-pointer"
     >
       <div className="relative aspect-video bg-slate-900">
         {imageSrc ? (
@@ -358,7 +361,7 @@ function ContinueWatchingCard({ item, navigate }: ContinueWatchingCardProps) {
           <Play size={14} className="text-white fill-white ml-0.5" />
         </div>
       </div>
-    </button>
+    </div>
   )
 }
 

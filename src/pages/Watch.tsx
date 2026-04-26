@@ -63,7 +63,6 @@ export default function Watch() {
   const [categoryName, setCategoryName] = useState<string>('')
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [currentItemId, setCurrentItemId] = useState<string>('')
-  const [currentCategoryId, setCurrentCategoryId] = useState<string | null>(null)
   const [currentType, setCurrentType] = useState<'channel' | 'movie' | 'episode'>('channel')
   const [activeSource, setActiveSource] = useState<Awaited<ReturnType<typeof getActiveSource>> | null>(null)
 
@@ -400,26 +399,30 @@ export default function Watch() {
 
     destroyPlayer()
 
+    const decodedId = targetItemId.includes('%') ? decodeURIComponent(targetItemId) : targetItemId
+
     let item: WatchableItem = null
     try {
-      const channel = await db.channels.where('id').equals(decodeURIComponent(targetItemId)).first()
+      const channel = await db.channels.where('id').equals(decodedId).first()
       if (channel) {
         item = { type: 'channel', data: channel }
       } else {
-        const movie = await db.movies.where('id').equals(decodeURIComponent(targetItemId)).first()
+        const movie = await db.movies.where('id').equals(decodedId).first()
         if (movie) {
           item = { type: 'movie', data: movie }
         }
       }
-    } catch {
+    } catch (err) {
+      console.error('[Watch] Failed to load item:', err)
       setStatus('error')
       setErrorMsg('Failed to load item')
       return
     }
 
     if (!item) {
+      console.warn('[Watch] Media not found', { id: targetItemId, decodedId })
       setStatus('error')
-      setErrorMsg('Item not found')
+      setErrorMsg('Media not found')
       return
     }
 
@@ -428,7 +431,6 @@ export default function Watch() {
     setItemName(getItemName(item))
     setCurrentItemId(item.data.id)
     setCurrentType(item.type)
-    setCurrentCategoryId(item.data.categoryId)
     setStatus('loading')
     setVideoInfo(null)
 
@@ -838,145 +840,176 @@ export default function Watch() {
         </div>
       </header>
 
-      {/* Main Content Area - Full remaining height */}
-      <div
-        className={`flex-1 flex flex-col lg:flex-row ${currentType === 'movie' ? 'overflow-y-auto lg:overflow-hidden' : 'overflow-hidden'}`}
-        style={{ height: 'calc(100dvh - 56px)' }}
-      >
-{/* Left Side - Video + Controls + Status */}
-        <div className={`${currentType === 'movie' ? 'flex-shrink-0 lg:flex-1' : 'flex-1'} flex flex-col overflow-hidden min-h-0`}>
-          {/* Video Container - flex-1 to take remaining space */}
-          <div className="flex-1 min-h-0 overflow-hidden p-2">
-            <div className="relative w-full h-full flex items-center justify-center bg-black rounded border border-slate-700">
-              <video
-                ref={videoRef}
-                controls
-                playsInline
-                className="w-full h-full object-contain"
-              />
-              {status === 'ready-click-to-play' && (
-                <button
-                  onClick={handlePlayClick}
-                  className="absolute inset-0 flex items-center justify-center bg-black/60 hover:bg-black/50 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 z-10"
-                >
-                  <div className="w-16 h-16 sm:w-20 sm:h-20 bg-indigo-600 rounded-full flex items-center justify-center hover:bg-indigo-500 transition-colors">
-                    <svg className="w-8 h-8 sm:w-10 sm:h-10 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                  </div>
-                </button>
-              )}
+      {/* Error state - dark centered panel */}
+      {status === 'error' && (
+        <div className="flex-1 flex items-center justify-center bg-slate-950">
+          <div className="text-center max-w-md px-4">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-slate-800 flex items-center justify-center">
+              <svg className="w-8 h-8 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h2 className="text-xl font-semibold text-white mb-2">Media not found</h2>
+            <p className="text-slate-400 text-sm mb-6">{errorMsg || 'The requested content could not be loaded.'}</p>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <button
+                onClick={() => navigate('/home')}
+                className="px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-yellow-500/50 min-h-[48px]"
+              >
+                Back to Home
+              </button>
+              <button
+                onClick={() => navigate('/live')}
+                className="px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[48px]"
+              >
+                Go to Live TV
+              </button>
             </div>
           </div>
+        </div>
+      )}
 
-          {/* Status Bar - Fixed height 40px */}
-          <div className="flex-shrink-0 h-10 px-4 flex items-center justify-between bg-slate-900 border-t border-slate-800">
-            <div>
-              {status === 'loading' && (
-                <div className="flex items-center gap-2 text-slate-400">
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span className="text-sm">Loading...</span>
-                </div>
+      {/* Main Content Area - Full remaining height */}
+      {status !== 'error' && (
+        <div
+          className={`flex-1 flex flex-col lg:flex-row ${currentType === 'movie' ? 'overflow-y-auto lg:overflow-hidden' : 'overflow-hidden'}`}
+          style={{ height: 'calc(100dvh - 56px)' }}
+        >
+          {/* Left Side - Video + Controls + Status */}
+          <div className={`${currentType === 'movie' ? 'flex-shrink-0 lg:flex-1' : 'flex-1'} flex flex-col overflow-hidden min-h-0`}>
+            {/* Video Container - flex-1 to take remaining space */}
+            <div className="flex-1 min-h-0 overflow-hidden p-2">
+              <div className="relative w-full h-full flex items-center justify-center bg-black rounded border border-slate-700">
+                <video
+                  ref={videoRef}
+                  controls
+                  playsInline
+                  className="w-full h-full object-contain"
+                />
+                {status === 'ready-click-to-play' && (
+                  <button
+                    onClick={handlePlayClick}
+                    className="absolute inset-0 flex items-center justify-center bg-black/60 hover:bg-black/50 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 z-10"
+                  >
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 bg-indigo-600 rounded-full flex items-center justify-center hover:bg-indigo-500 transition-colors">
+                      <svg className="w-8 h-8 sm:w-10 sm:h-10 text-white ml-1" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M8 5v14l11-7z" />
+                      </svg>
+                    </div>
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Status Bar - Fixed height 40px */}
+            <div className="flex-shrink-0 h-10 px-4 flex items-center justify-between bg-slate-900 border-t border-slate-800">
+              <div>
+                {status === 'loading' && (
+                  <div className="flex items-center gap-2 text-slate-400">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span className="text-sm">Loading...</span>
+                  </div>
+                )}
+                {status === 'ready-click-to-play' && (
+                  <p className="text-slate-400 text-sm">Click play to start</p>
+                )}
+              {status === 'playing' && (
+                <p className="text-green-400 text-sm">Playing</p>
               )}
               {status === 'ready-click-to-play' && (
                 <p className="text-slate-400 text-sm">Click play to start</p>
               )}
-              {status === 'playing' && (
-                <p className="text-green-400 text-sm">Playing</p>
-              )}
-              {status === 'error' && (
-                <p className="text-red-400 text-sm truncate max-w-[200px] sm:max-w-md">{errorMsg}</p>
+            </div>
+              {status === 'playing' && categoryItems.length > 1 && (
+                <p className="text-slate-500 text-xs hidden sm:block">↑ / ↓ arrows to change</p>
               )}
             </div>
-            {status === 'playing' && categoryItems.length > 1 && (
-              <p className="text-slate-500 text-xs hidden sm:block">↑ / ↓ arrows to change</p>
-            )}
           </div>
-        </div>
 
-        {/* Right Sidebar - Episode/Channel List */}
-        {isSidebarOpen && categoryItems.length > 0 && (
-          <aside
-            className={`${currentType === 'movie' ? 'flex-none' : 'flex-1'} lg:flex-initial lg:w-80 flex flex-col bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-700 overflow-hidden`}
-            style={currentType === 'movie' ? undefined : { height: 'calc(100dvh - 56px)' }}
-          >
-            {/* Category Header */}
-            <div className="flex-shrink-0 p-3 border-b border-slate-700">
-              <h2 className="text-sm font-medium text-slate-300 uppercase tracking-wide truncate">
-                {currentType === 'movie' ? `More from ${categoryName || 'this category'}` : categoryName}
-              </h2>
-              <p className="text-xs text-slate-500 mt-0.5">
-                {currentType === 'episode' ? 'Episode' : currentType === 'channel' ? 'channels' : `${categoryItems.length} more movies`}
-              </p>
-            </div>
-            {/* Scrollable List */}
-            <div className="flex-1 overflow-y-auto min-h-0">
-              <div className="flex flex-col gap-1 p-2">
-                {categoryItems.map((item) => {
-                  if (!item) return null
-                  const itemId = item.type === 'episode' ? `episode_${(item.data as EpisodeInfo).streamId}` : item.data.id
-                  const isActive = itemId === currentItemId
-                  const itemName = getItemName(item)
-                  return (
-                    <button
-                      key={itemId}
-                      ref={isActive ? activeItemRef : null}
-                      onClick={() => {
-                        if (item.type === 'episode') {
-                          const ep = item.data as EpisodeInfo
-                          navigate(`/watch/episode/${ep.streamId}`, {
-                            state: ep,
-                          })
-                        } else {
-                          navigate(`/watch/${encodeURIComponent(item.data.id)}`)
-                        }
-                      }}
-                      className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[48px] w-full ${
-                        isActive
-                          ? 'bg-indigo-600/20 text-indigo-400 border-l-4 border-indigo-500'
-                          : 'text-slate-300 hover:bg-slate-800'
-                      }`}
-                    >
-                      {item.type === 'channel' && (item.data as ChannelRecord).logoUrl ? (
-                        <img
-                          src={(item.data as ChannelRecord).logoUrl}
-                          alt={getItemName(item)}
-                          className="w-10 h-10 object-contain rounded bg-slate-800 flex-shrink-0"
-                          loading="lazy"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement
-                            target.style.display = 'none'
-                          }}
-                        />
-                      ) : item.type === 'movie' && (item.data as MovieRecord).logoUrl ? (
-                        <img
-                          src={(item.data as MovieRecord).logoUrl}
-                          alt={getItemName(item)}
-                          className="w-12 h-16 lg:w-10 lg:h-10 object-cover rounded bg-slate-800 flex-shrink-0"
-                          loading="lazy"
-                          onError={(e) => {
-                            const target = e.target as HTMLImageElement
-                            target.style.display = 'none'
-                          }}
-                        />
-                      ) : (
-                        <div className={`${item.type === 'movie' ? 'w-12 h-16 lg:w-10 lg:h-10' : 'w-10 h-10'} bg-slate-800 rounded flex items-center justify-center flex-shrink-0`}>
-                          {item.type === 'channel' ? (
-                            <Tv2 size={18} className="text-slate-400" />
-                          ) : (
-                            <Film size={18} className="text-slate-400" />
-                          )}
-                        </div>
-                      )}
-                      <span className="flex-1 text-sm font-medium truncate text-left">{itemName}</span>
-                    </button>
-                  )
-                })}
+          {/* Right Sidebar - Episode/Channel List */}
+          {isSidebarOpen && categoryItems.length > 0 && (
+            <aside
+              className={`${currentType === 'movie' ? 'flex-none' : 'flex-1'} lg:flex-initial lg:w-80 flex flex-col bg-slate-900 border-t lg:border-t-0 lg:border-l border-slate-700 overflow-hidden`}
+              style={currentType === 'movie' ? undefined : { height: 'calc(100dvh - 56px)' }}
+            >
+              {/* Category Header */}
+              <div className="flex-shrink-0 p-3 border-b border-slate-700">
+                <h2 className="text-sm font-medium text-slate-300 uppercase tracking-wide truncate">
+                  {currentType === 'movie' ? `More from ${categoryName || 'this category'}` : categoryName}
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {currentType === 'episode' ? 'Episode' : currentType === 'channel' ? 'channels' : `${categoryItems.length} more movies`}
+                </p>
               </div>
-            </div>
-          </aside>
-        )}
-      </div>
+              {/* Scrollable List */}
+              <div className="flex-1 overflow-y-auto min-h-0">
+                <div className="flex flex-col gap-1 p-2">
+                  {categoryItems.map((item) => {
+                    if (!item) return null
+                    const itemId = item.type === 'episode' ? `episode_${(item.data as EpisodeInfo).streamId}` : item.data.id
+                    const isActive = itemId === currentItemId
+                    const itemName = getItemName(item)
+                    return (
+                      <button
+                        key={itemId}
+                        ref={isActive ? activeItemRef : null}
+                        onClick={() => {
+                          if (item.type === 'episode') {
+                            const ep = item.data as EpisodeInfo
+                            navigate(`/watch/episode/${ep.streamId}`, {
+                              state: ep,
+                            })
+                          } else {
+                            navigate(`/watch/${encodeURIComponent(item.data.id)}`)
+                          }
+                        }}
+                        className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[48px] w-full ${
+                          isActive
+                            ? 'bg-indigo-600/20 text-indigo-400 border-l-4 border-indigo-500'
+                            : 'text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        {item.type === 'channel' && (item.data as ChannelRecord).logoUrl ? (
+                          <img
+                            src={(item.data as ChannelRecord).logoUrl}
+                            alt={getItemName(item)}
+                            className="w-10 h-10 object-contain rounded bg-slate-800 flex-shrink-0"
+                            loading="lazy"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement
+                              target.style.display = 'none'
+                            }}
+                          />
+                        ) : item.type === 'movie' && (item.data as MovieRecord).logoUrl ? (
+                          <img
+                            src={(item.data as MovieRecord).logoUrl}
+                            alt={getItemName(item)}
+                            className="w-12 h-16 lg:w-10 lg:h-10 object-cover rounded bg-slate-800 flex-shrink-0"
+                            loading="lazy"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement
+                              target.style.display = 'none'
+                            }}
+                          />
+                        ) : (
+                          <div className={`${item.type === 'movie' ? 'w-12 h-16 lg:w-10 lg:h-10' : 'w-10 h-10'} bg-slate-800 rounded flex items-center justify-center flex-shrink-0`}>
+                            {item.type === 'channel' ? (
+                              <Tv2 size={18} className="text-slate-400" />
+                            ) : (
+                              <Film size={18} className="text-slate-400" />
+                            )}
+                          </div>
+                        )}
+                        <span className="flex-1 text-sm font-medium truncate text-left">{itemName}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            </aside>
+          )}
+        </div>
+      )}
     </div>
   )
 }
