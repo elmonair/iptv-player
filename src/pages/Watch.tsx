@@ -411,6 +411,11 @@ export default function Watch() {
     let item: WatchableItem = null
     try {
       const channel = await db.channels.where('id').equals(decodedId).first()
+      console.log('[Watch Resolve Live]', {
+        routeId: targetItemId,
+        decodedId,
+        queryResult: channel ? { found: true, name: channel.name, streamId: channel.streamId } : { found: false }
+      })
       if (channel) {
         item = { type: 'channel', data: channel }
       } else {
@@ -969,7 +974,15 @@ export default function Watch() {
                           } else if (item.type === 'movie') {
                             navigate(`/watch/movie/${encodeURIComponent(item.data.id)}`)
                           } else {
-                            navigate(`/watch/live/${encodeURIComponent(item.data.id)}`)
+                            const ch = item.data as ChannelRecord
+                            console.log('[Watch Sidebar Live Click]', {
+                              clickedId: ch.id,
+                              title: ch.name,
+                              streamId: ch.streamId,
+                              categoryId: ch.categoryId,
+                              url: ch.streamUrl || (ch as any).url
+                            })
+                            navigate(`/watch/live/${encodeURIComponent(ch.id)}`)
                           }
                         }}
                         className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[48px] w-full ${
