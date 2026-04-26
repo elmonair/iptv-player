@@ -717,6 +717,8 @@ export default function Watch() {
     }
   }, [currentItemId])
 
+  const initRef = useRef<boolean>(false)
+
   useEffect(() => {
     if (!routeId && !episodeId) {
       navigate('/live')
@@ -724,65 +726,78 @@ export default function Watch() {
     }
 
     const init = async () => {
-      const source = getActiveSource()
-      setActiveSource(source)
-      if (!source || source.type !== 'xtream') {
-        console.log('[Watch] No active Xtream source, redirecting')
-        navigate('/home')
+      if (initRef.current) {
+        console.log('[Watch] Init already in progress, skipping')
         return
       }
+      initRef.current = true
 
-      console.log('[Watch] Source found:', source.name ?? '')
-      console.log('[Watch] episodeId:', episodeId, 'location.state:', location.state)
-
-      if (episodeId && location.state) {
-        let episodeState: EpisodeInfo = location.state as EpisodeInfo
-
-        if (!episodeState.allEpisodes && episodeState.seriesId) {
-          try {
-            const seriesInfo = await getSeriesInfo(source.serverUrl, {
-              username: source.username,
-              password: source.password,
-            }, episodeState.seriesId)
-
-            const allEps: EpisodeInfo['allEpisodes'] = []
-            for (const [seasonNum, eps] of Object.entries(seriesInfo.episodes)) {
-              for (const ep of eps) {
-                allEps.push({
-                  id: ep.id,
-                  episode_num: ep.episode_num,
-                  title: ep.title,
-                  container_extension: ep.container_extension,
-                  seasonNumber: parseInt(seasonNum, 10),
-                })
-              }
-            }
-            episodeState = { ...episodeState, allEpisodes: allEps }
-          } catch (err) {
-            console.warn('[Watch] Failed to fetch all episodes:', err)
-          }
+      try {
+        const source = getActiveSource()
+        setActiveSource(source)
+        if (!source || source.type !== 'xtream') {
+          console.log('[Watch] No active Xtream source, redirecting')
+          navigate('/home')
+          return
         }
 
-        console.log('[Watch] Playing episode:', episodeState.episodeTitle)
-        await playEpisode(episodeState)
-        return
-      }
+        console.log('[Watch] Source found:', source.name ?? '')
+        console.log('[Watch] routeId:', routeId, 'routeType:', routeType, 'episodeId:', episodeId)
 
-      const [channels, movies] = await Promise.all([
-        db.channels.where('sourceId').equals(source.id).toArray(),
-        db.movies.where('sourceId').equals(source.id).toArray(),
-      ])
+        if (episodeId && location.state) {
+          let episodeState: EpisodeInfo = location.state as EpisodeInfo
 
-      const channelItems: WatchableItem[] = channels.map((c) => ({ type: 'channel' as const, data: c }))
-      const movieItems: WatchableItem[] = movies.map((m) => ({ type: 'movie' as const, data: m }))
+          if (!episodeState.allEpisodes && episodeState.seriesId) {
+            try {
+              const seriesInfo = await getSeriesInfo(source.serverUrl, {
+                username: source.username,
+                password: source.password,
+              }, episodeState.seriesId)
 
-      const allItems: WatchableItem[] = [...channelItems, ...movieItems].sort((a, b) =>
-        getItemName(a).localeCompare(getItemName(b))
-      )
-      allItemsRef.current = allItems
+              const allEps: EpisodeInfo['allEpisodes'] = []
+              for (const [seasonNum, eps] of Object.entries(seriesInfo.episodes)) {
+                for (const ep of eps) {
+                  allEps.push({
+                    id: ep.id,
+                    episode_num: ep.episode_num,
+                    title: ep.title,
+                    container_extension: ep.container_extension,
+                    seasonNumber: parseInt(seasonNum, 10),
+                  })
+                }
+              }
+              episodeState = { ...episodeState, allEpisodes: allEps }
+            } catch (err) {
+              console.warn('[Watch] Failed to fetch all episodes:', err)
+            }
+          }
 
-      if (routeId && routeType) {
-        await zapTo(routeId)
+          console.log('[Watch] Playing episode:', episodeState.episodeTitle)
+          await playEpisode(episodeState)
+          return
+        }
+
+        const [channels, movies] = await Promise.all([
+          db.channels.where('sourceId').equals(source.id).toArray(),
+          db.movies.where('sourceId').equals(source.id).toArray(),
+        ])
+
+        console.log('[Watch] Loaded channels:', channels.length, 'movies:', movies.length)
+
+        const channelItems: WatchableItem[] = channels.map((c) => ({ type: 'channel' as const, data: c }))
+        const movieItems: WatchableItem[] = movies.map((m) => ({ type: 'movie' as const, data: m }))
+
+        const allItems: WatchableItem[] = [...channelItems, ...movieItems].sort((a, b) =>
+          getItemName(a).localeCompare(getItemName(b))
+        )
+        allItemsRef.current = allItems
+
+        if (routeId && routeType) {
+          console.log('[Watch] Calling zapTo with routeId:', routeId)
+          await zapTo(routeId)
+        }
+      } finally {
+        initRef.current = false
       }
     }
 
