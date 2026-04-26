@@ -186,7 +186,7 @@ export default function SearchPage() {
       state: { from, tab: 'channels' }
     })
 
-    navigate(`/watch/${encodeURIComponent(channel.id)}`, {
+    navigate(`/watch/live/${encodeURIComponent(channel.id)}`, {
       state: { from, tab: 'channels', scrollY: 0 }
     })
   }
@@ -201,7 +201,7 @@ export default function SearchPage() {
       state: { from, tab: 'movies' }
     })
 
-    navigate(`/watch/${encodeURIComponent(movie.id)}`, {
+    navigate(`/watch/movie/${encodeURIComponent(movie.id)}`, {
       state: { from, tab: 'movies', scrollY: 0 }
     })
   }

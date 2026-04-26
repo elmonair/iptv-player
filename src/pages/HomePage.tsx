@@ -275,7 +275,7 @@ function ContinueWatchingCard({ item, navigate }: ContinueWatchingCardProps) {
     const from = location.pathname + location.search
 
     if (item.itemType === 'channel') {
-      navigate(`/watch/channel/${encodeURIComponent(item.itemId)}`, {
+      navigate(`/watch/live/${encodeURIComponent(item.itemId)}`, {
         state: { from, tab: 'channels', scrollY: 0 }
       })
     } else if (item.itemType === 'movie') {
