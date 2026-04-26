@@ -959,8 +959,10 @@ export default function Watch() {
                             navigate(`/watch/episode/${ep.streamId}`, {
                               state: ep,
                             })
+                          } else if (item.type === 'movie') {
+                            navigate(`/watch/movie/${encodeURIComponent(item.data.id)}`)
                           } else {
-                            navigate(`/watch/${encodeURIComponent(item.data.id)}`)
+                            navigate(`/watch/live/${encodeURIComponent(item.data.id)}`)
                           }
                         }}
                         className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[48px] w-full ${
