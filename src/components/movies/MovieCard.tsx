@@ -35,7 +35,7 @@ export default function MovieCard({ movie, onClick }: Props) {
   }
 
   return (
-    <button
+    <div
       role="button"
       tabIndex={0}
       onClick={() => onClick(movie)}
@@ -87,6 +87,6 @@ export default function MovieCard({ movie, onClick }: Props) {
           )}
         </div>
       </div>
-    </button>
+    </div>
   )
 }

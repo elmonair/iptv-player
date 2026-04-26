@@ -40,7 +40,7 @@ export default function ChannelCard({ channel, onClick, cardWidth = 180 }: Props
   }
 
   return (
-    <button
+    <div
       role="button"
       tabIndex={0}
       onClick={() => onClick(channel)}
@@ -80,6 +80,6 @@ export default function ChannelCard({ channel, onClick, cardWidth = 180 }: Props
           {channel.name}
         </p>
       </div>
-    </button>
+    </div>
   )
 }

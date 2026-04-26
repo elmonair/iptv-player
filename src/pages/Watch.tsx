@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart, Volume2, Subtitles, Check, X } from 'lucide-react'
+import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart } from 'lucide-react'
 import mpegts from 'mpegts.js'
 import Hls from 'hls.js'
-import { loadSubtitleAsTrack, isSubtitlesUrl } from '../lib/subtitles'
 import { db } from '../lib/db'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
@@ -67,13 +66,6 @@ export default function Watch() {
   const [currentCategoryId, setCurrentCategoryId] = useState<string | null>(null)
   const [currentType, setCurrentType] = useState<'channel' | 'movie' | 'episode'>('channel')
   const [activeSource, setActiveSource] = useState<Awaited<ReturnType<typeof getActiveSource>> | null>(null)
-  const [audioTracks, setAudioTracks] = useState<Array<{ id: number; label: string; language?: string; enabled: boolean }>>([])
-  const [subtitleTracks, setSubtitleTracks] = useState<Array<{ id: number; label: string; language?: string; enabled: boolean }>>([])
-  const [showAudioMenu, setShowAudioMenu] = useState(false)
-  const [showSubtitleMenu, setShowSubtitleMenu] = useState(false)
-  const [tracksChecked, setTracksChecked] = useState(false)
-  const audioMenuRef = useRef<HTMLDivElement>(null)
-  const subtitleMenuRef = useRef<HTMLDivElement>(null)
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
@@ -240,74 +232,6 @@ export default function Watch() {
     navigate('/live')
   }, [currentType, currentItemId, location.state, navigate])
 
-  const handleAudioTrackSelect = (index: number) => {
-    const hls = hlsRef.current
-
-    // HLS.js track selection
-    if (hls && hls.audioTracks && hls.audioTracks.length > 0) {
-      hls.audioTrack = index
-      console.log('[HLS] Selected audio track:', index, hls.audioTracks[index])
-    } else if (videoRef.current && videoRef.current.audioTracks) {
-      // Native track selection
-      const tracks = videoRef.current.audioTracks
-      for (let i = 0; i < tracks.length; i++) {
-        tracks[i].enabled = (i === index)
-      }
-    }
-
-    setAudioTracks(prev => prev.map((track, i) => ({ ...track, enabled: i === index })))
-  }
-
-  const handleSubtitleTrackSelect = (index: number) => {
-    const hls = hlsRef.current
-
-    // HLS.js subtitle selection
-    if (hls && hls.subtitleTracks && hls.subtitleTracks.length > 0) {
-      hls.subtitleTrack = index
-      console.log('[HLS] Selected subtitle track:', index, hls.subtitleTracks[index])
-    } else if (videoRef.current && videoRef.current.textTracks) {
-      // Native subtitle selection
-      const tracks = videoRef.current.textTracks
-      for (let i = 0; i < tracks.length; i++) {
-        tracks[i].mode = (i === index) ? 'showing' : 'hidden'
-      }
-    }
-
-    setSubtitleTracks(prev => prev.map((track, i) => ({ ...track, enabled: i === index })))
-  }
-
-  const handleToggleSubtitles = () => {
-    const hls = hlsRef.current
-
-    // HLS.js: turn off subtitles
-    if (hls && hls.subtitleTracks && hls.subtitleTracks.length > 0) {
-      hls.subtitleTrack = -1
-      console.log('[HLS] Subtitles off')
-    } else if (videoRef.current && videoRef.current.textTracks) {
-      // Native: turn off all subtitles
-      const tracks = videoRef.current.textTracks
-      for (let i = 0; i < tracks.length; i++) {
-        tracks[i].mode = 'hidden'
-      }
-    }
-
-    setSubtitleTracks(prev => prev.map(track => ({ ...track, enabled: false })))
-  }
-
-  // Close dropdowns when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      if (audioMenuRef.current && !audioMenuRef.current.contains(e.target as Node)) {
-        setShowAudioMenu(false)
-      }
-      if (subtitleMenuRef.current && !subtitleMenuRef.current.contains(e.target as Node)) {
-        setShowSubtitleMenu(false)
-      }
-    }
-    document.addEventListener('mousedown', handleClickOutside)
-    return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [])
-
   const buildStreamUrl = (source: { serverUrl: string; username: string; password: string }, item: WatchableItem): string => {
     if (!item) return ''
     if (item.type === 'channel') {
@@ -417,7 +341,7 @@ export default function Watch() {
     console.log('[Watch] Episode stream URL:', safeUrl)
 
     const videoEl = videoRef.current
-    const usedHls = setupVideoSource(videoEl, streamUrl)
+    setupVideoSource(videoEl, streamUrl)
 
     const episodeId = String(episodeInfo.streamId)
     const history = getWatchHistory()
@@ -620,7 +544,7 @@ export default function Watch() {
       }
     } else {
       // Movie — use HLS.js for m3u8 streams, native for others
-      const usedHls = setupVideoSource(videoEl, streamUrl)
+      setupVideoSource(videoEl, streamUrl)
 
       const movieId = (item.data as MovieRecord).id
       const history = getWatchHistory()
@@ -764,182 +688,7 @@ export default function Watch() {
     }
   }, [stopProgressTracking])
 
-  // Detect audio and subtitle tracks (native + HLS + delayed checks)
-  useEffect(() => {
-    const videoEl = videoRef.current
-    if (!videoEl) {
-      console.log('[Tracks] No video element yet')
-      return
-    }
-
-    console.log('[Tracks] Setting up track detection, currentType:', currentType)
-    console.log('[Tracks] streamUrl:', videoEl.src?.substring(0, 80))
-
-    const logNativeTracks = () => {
-      console.log('[Native] textTracks length:', videoEl.textTracks?.length)
-      console.log('[Native] audioTracks length:', videoEl.audioTracks?.length)
-      Array.from(videoEl.textTracks || []).forEach((track, i) => {
-        console.log('[Native] textTrack', i, {
-          label: track.label,
-          language: track.language,
-          kind: track.kind,
-          mode: track.mode,
-          cues: track.cues?.length
-        })
-      })
-      Array.from(videoEl.audioTracks || []).forEach((track, i) => {
-        console.log('[Native] audioTrack', i, {
-          label: track.label,
-          language: track.language,
-          enabled: track.enabled
-        })
-      })
-    }
-
-    const updateTracks = () => {
-      const audioList: Array<{ id: number; label: string; language?: string; enabled: boolean }> = []
-      const subtitleList: Array<{ id: number; label: string; language?: string; enabled: boolean }> = []
-
-      logNativeTracks()
-
-      // 1. HLS.js tracks (priority if hls instance exists)
-      const hls = hlsRef.current
-      if (hls) {
-        console.log('[HLS] audioTracks:', hls.audioTracks?.length, hls.audioTracks?.map(t => ({ name: t.name, lang: t.lang })))
-        console.log('[HLS] subtitleTracks:', hls.subtitleTracks?.length, hls.subtitleTracks?.map(t => ({ name: t.name, lang: t.lang })))
-        console.log('[HLS] audioTrack:', hls.audioTrack)
-        console.log('[HLS] subtitleTrack:', hls.subtitleTrack)
-
-        if (hls.audioTracks && hls.audioTracks.length > 0) {
-          for (let i = 0; i < hls.audioTracks.length; i++) {
-            const track = hls.audioTracks[i]
-            audioList.push({
-              id: i,
-              label: track.name || track.lang || `Audio ${i + 1}`,
-              language: track.lang,
-              enabled: hls.audioTrack === i
-            })
-          }
-        }
-
-        if (hls.subtitleTracks && hls.subtitleTracks.length > 0) {
-          for (let i = 0; i < hls.subtitleTracks.length; i++) {
-            const track = hls.subtitleTracks[i]
-            subtitleList.push({
-              id: i,
-              label: track.name || track.lang || `Subtitle ${i + 1}`,
-              language: track.lang,
-              enabled: hls.subtitleTrack === i
-            })
-          }
-        }
-      }
-
-      // 2. Native video tracks (fallback for non-HLS streams)
-      if (audioList.length === 0) {
-        for (let i = 0; i < (videoEl.audioTracks?.length || 0); i++) {
-          const track = videoEl.audioTracks![i]
-          audioList.push({
-            id: i,
-            label: track.label || `Audio ${i + 1}`,
-            language: track.language,
-            enabled: track.enabled
-          })
-        }
-      }
-
-      if (subtitleList.length === 0) {
-        for (let i = 0; i < (videoEl.textTracks?.length || 0); i++) {
-          const track = videoEl.textTracks![i]
-          if (track.kind === 'subtitles' || track.kind === 'captions' || track.kind === '') {
-            subtitleList.push({
-              id: i,
-              label: track.label || track.language || `Subtitle ${i + 1}`,
-              language: track.language,
-              enabled: track.mode === 'showing'
-            })
-          }
-        }
-      }
-
-      setAudioTracks(audioList)
-      setSubtitleTracks(subtitleList)
-      setTracksChecked(true)
-
-      console.log('[Tracks] Updated — audio:', audioList.length, 'subtitle:', subtitleList.length)
-      console.log('[Tracks] rendered controls:', {
-        hasAudioTracks: audioList.length > 0,
-        hasTextTracks: subtitleList.length > 0,
-        currentType,
-        hlsActive: !!hls,
-        nativeAudioTracks: videoEl.audioTracks?.length || 0,
-        nativeTextTracks: videoEl.textTracks?.length || 0
-      })
-    }
-
-    updateTracks()
-
-    // Delayed checks — tracks may appear after manifest loads
-    const delay1 = setTimeout(updateTracks, 1000)
-    const delay2 = setTimeout(updateTracks, 3000)
-    const delay3 = setTimeout(updateTracks, 5000)
-
-    const handleNativeAudioTrackChange = () => updateTracks()
-    const handleNativeTextTrackChange = () => updateTracks()
-
-    // Listen for native track events
-    videoEl.addEventListener('loadedmetadata', updateTracks)
-    videoEl.addEventListener('loadeddata', updateTracks)
-    videoEl.addEventListener('canplay', updateTracks)
-    if (videoEl.audioTracks) {
-      videoEl.audioTracks.addEventListener('change', handleNativeAudioTrackChange)
-      videoEl.audioTracks.addEventListener('addtrack', handleNativeAudioTrackChange)
-    }
-    if (videoEl.textTracks) {
-      videoEl.textTracks.addEventListener('addtrack', handleNativeTextTrackChange)
-      videoEl.textTracks.addEventListener('removetrack', handleNativeTextTrackChange)
-      videoEl.textTracks.addEventListener('change', handleNativeTextTrackChange)
-    }
-
-    // Listen for HLS.js events
-    const hls = hlsRef.current
-    if (hls) {
-      hls.on(Hls.Events.MANIFEST_PARSED, updateTracks)
-      hls.on(Hls.Events.AUDIO_TRACKS_UPDATED, updateTracks)
-      hls.on(Hls.Events.SUBTITLE_TRACKS_UPDATED, updateTracks)
-      hls.on(Hls.Events.AUDIO_TRACK_SWITCHING, updateTracks)
-      hls.on(Hls.Events.SUBTITLE_TRACK_SWITCH, updateTracks)
-      hls.on(Hls.Events.LEVEL_LOADED, updateTracks)
-      hls.on(Hls.Events.SUBTITLE_TRACK_LOADED, updateTracks)
-    }
-
-    return () => {
-      clearTimeout(delay1)
-      clearTimeout(delay2)
-      clearTimeout(delay3)
-      videoEl.removeEventListener('loadedmetadata', updateTracks)
-      videoEl.removeEventListener('loadeddata', updateTracks)
-      videoEl.removeEventListener('canplay', updateTracks)
-      if (videoEl.audioTracks) {
-        videoEl.audioTracks.removeEventListener('change', handleNativeAudioTrackChange)
-        videoEl.audioTracks.removeEventListener('addtrack', handleNativeAudioTrackChange)
-      }
-      if (videoEl.textTracks) {
-        videoEl.textTracks.removeEventListener('addtrack', handleNativeTextTrackChange)
-        videoEl.textTracks.removeEventListener('removetrack', handleNativeTextTrackChange)
-        videoEl.textTracks.removeEventListener('change', handleNativeTextTrackChange)
-      }
-      if (hls) {
-        hls.off(Hls.Events.MANIFEST_PARSED, updateTracks)
-        hls.off(Hls.Events.AUDIO_TRACKS_UPDATED, updateTracks)
-        hls.off(Hls.Events.SUBTITLE_TRACKS_UPDATED, updateTracks)
-        hls.off(Hls.Events.AUDIO_TRACK_SWITCHING, updateTracks)
-        hls.off(Hls.Events.SUBTITLE_TRACK_SWITCH, updateTracks)
-        hls.off(Hls.Events.LEVEL_LOADED, updateTracks)
-        hls.off(Hls.Events.SUBTITLE_TRACK_LOADED, updateTracks)
-      }
-    }
-  }, [currentItemId, currentType])
+  // Track detection removed - audio/subtitle UI no longer needed
 
   useEffect(() => {
     if (activeItemRef.current) {
@@ -1112,103 +861,6 @@ export default function Watch() {
               )}
             </div>
           </div>
-
-          {/* Audio/Subtitle Control Bar - shown for movies and episodes */}
-          {(currentType === 'movie' || currentType === 'episode') && (
-            <div className="flex-shrink-0 px-4 py-2 bg-slate-900 border-t border-slate-800 select-none">
-              <div className="flex items-center justify-center gap-4">
-                {/* Audio Selection */}
-                <div className="relative">
-                  <button
-                    onClick={() => { console.log('[Tracks] audioTracks:', videoRef.current?.audioTracks); setShowAudioMenu(!showAudioMenu); }}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[36px] disabled:opacity-50 disabled:cursor-not-allowed"
-                    aria-label="Select audio track"
-                    disabled={audioTracks.length === 0}
-                  >
-                    <Volume2 size={18} className="text-slate-400" />
-                    <span className="text-sm text-slate-300">
-                      {audioTracks.length > 0 ? (audioTracks.find(t => t.enabled)?.label || `Audio (${audioTracks.length})`) : 'Audio'}
-                    </span>
-                  </button>
-                  {showAudioMenu && audioTracks.length > 0 && (
-                    <div
-                      ref={audioMenuRef}
-                      className="absolute top-full left-0 mt-1 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 overflow-hidden"
-                    >
-                      {audioTracks.map((track, index) => (
-                        <button
-                          key={track.id}
-                          onClick={() => { handleAudioTrackSelect(index); setShowAudioMenu(false); }}
-                          className="w-full px-3 py-2 flex items-center justify-between hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
-                        >
-                          <div className="flex flex-col items-start">
-                            <span className="text-sm text-slate-300">{track.label}</span>
-                            {track.language && (
-                              <span className="text-xs text-slate-500">{track.language}</span>
-                            )}
-                          </div>
-                          {track.enabled && <Check size={16} className="text-green-500" />}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* Subtitle Selection */}
-                <div className="relative">
-                  <button
-                    onClick={() => { console.log('[Tracks] textTracks:', videoRef.current?.textTracks); setShowSubtitleMenu(!showSubtitleMenu); }}
-                    className="flex items-center gap-2 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[36px] disabled:opacity-50 disabled:cursor-not-allowed"
-                    aria-label="Select subtitle track"
-                    disabled={subtitleTracks.length === 0}
-                  >
-                    <Subtitles size={18} className="text-slate-400" />
-                    <span className="text-sm text-slate-300">
-                      {subtitleTracks.length > 0 ? (subtitleTracks.find(t => t.enabled)?.label || `Subs (${subtitleTracks.length})`) : 'Subs'}
-                    </span>
-                    {subtitleTracks.some(t => t.enabled) && (
-                      <div className="w-2 h-2 bg-green-500 rounded-full" />
-                    )}
-                  </button>
-                  {showSubtitleMenu && (
-                    <div
-                      ref={subtitleMenuRef}
-                      className="absolute top-full left-0 mt-1 w-48 bg-slate-800 border border-slate-700 rounded-lg shadow-xl z-50 overflow-hidden"
-                    >
-                      <button
-                        onClick={() => { handleToggleSubtitles(); setShowSubtitleMenu(false); }}
-                        className="w-full px-3 py-2 flex items-center justify-between hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50 border-b border-slate-700"
-                      >
-                        <span className="text-sm text-slate-300">Off</span>
-                        {!subtitleTracks.some(t => t.enabled) && <Check size={16} className="text-green-500" />}
-                      </button>
-                      {subtitleTracks.map((track, index) => (
-                        <button
-                          key={track.id}
-                          onClick={() => { handleSubtitleTrackSelect(index); setShowSubtitleMenu(false); }}
-                          className="w-full px-3 py-2 flex items-center justify-between hover:bg-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
-                        >
-                          <div className="flex flex-col items-start">
-                            <span className="text-sm text-slate-300">{track.label}</span>
-                            {track.language && (
-                              <span className="text-xs text-slate-500">{track.language}</span>
-                            )}
-                          </div>
-                          {track.enabled && <Check size={16} className="text-green-500" />}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                {/* No tracks available message */}
-                {/* No tracks available message — only show after tracks have been checked */}
-                {tracksChecked && audioTracks.length === 0 && subtitleTracks.length === 0 && (
-                  <span className="text-xs text-slate-500">No audio/subtitle tracks available for this stream</span>
-                )}
-              </div>
-            </div>
-          )}
 
           {/* Status Bar - Fixed height 40px */}
           <div className="flex-shrink-0 h-10 px-4 flex items-center justify-between bg-slate-900 border-t border-slate-800">

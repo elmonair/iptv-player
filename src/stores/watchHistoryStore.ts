@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import { db } from '../lib/db'
 import type { WatchHistoryRecord } from '../lib/db'
-import { generateId } from '../lib/uuid'
 
 type WatchHistoryState = {
   history: WatchHistoryRecord[]
@@ -83,9 +82,10 @@ export const useWatchHistoryStore = create<WatchHistoryState & WatchHistoryActio
   getContinueWatching: () => {
     const { history } = get()
     const filtered = history.filter(h => {
-      const hasDuration = h.duration && h.duration > 0
+      const duration = typeof h.duration === 'number' ? h.duration : 0
+      const hasDuration = duration > 0
       const hasProgress = h.position > 0
-      const notFinished = h.position < h.duration * 0.9
+      const notFinished = hasDuration ? h.position < duration * 0.9 : false
       const result = hasDuration && hasProgress && notFinished
       console.log('[WatchHistory] getContinueWatching filter:', {
         itemType: h.itemType,

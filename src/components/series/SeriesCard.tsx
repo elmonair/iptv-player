@@ -43,7 +43,7 @@ export default function SeriesCard({ series, onClick }: Props) {
   }
 
   return (
-    <button
+    <div
       role="button"
       tabIndex={0}
       onClick={() => onClick(series)}
@@ -103,6 +103,6 @@ export default function SeriesCard({ series, onClick }: Props) {
           )}
         </div>
       </div>
-    </button>
+    </div>
   )
 }

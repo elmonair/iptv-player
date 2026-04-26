@@ -188,17 +188,17 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - Comment the "why" for non-obvious code, not the "what"
 
 ## Latest Commit
-**Commit**: `c0135ae` — "Fix series loading and channel favorites" (2026-04-25)
-**Changes**: 31 files changed, 2985 insertions(+), 608 deletions(-)
+**Commit**: `c591021` — "Remove player action bar below video and clean up dead code" (2026-04-26)
+**Changes**: 7 files changed, 265 insertions(+), 375 deletions(-)
 **Key changes**:
-- Fixed SeriesDetail loading/not-found flash (reset loading on seriesId change, treat series===undefined as loading, null-safe seriesInfo access)
-- Added channel favorites heart button to inline ChannelCard in ChannelCategories.tsx
-- Added favoritesStore (Zustand) with FavoriteRecord type in Dexie v4 schema
-- Added heart buttons to MovieCard, SeriesCard, MovieDetail, SeriesDetail, Watch page, EpisodeList
-- Added Favorites category to Channels/Movies/Series sidebar tabs
-- Created shared metadata utilities in src/lib/metadata.ts (parseTitle, formatRating, formatYear, formatDuration, formatReleaseDate)
-- Created MovieDetail page with full metadata loading via get_vod_info API
-- Created SeriesDetail page with unified visual design matching MovieDetail
+- Removed Audio/Subtitle Control Bar from Watch page (Volume2/Subtitles dropdowns, track availability text, Open External, Copy URL, Debug Tracks buttons)
+- Removed all track detection code (audioTracks/subtitleTracks state, updateTracks useEffect, HLS/native track event listeners, delayed setTimeout checks)
+- Removed handleAudioTrackSelect/handleSubtitleTrackSelect/handleToggleSubtitles/handleOpenExternalPlayer/handleCopyStreamUrl/debug* handlers
+- Simplified setupVideoSource (HLS init + console.log only, no state updates)
+- Fixed nested button warnings in ChannelCard/MovieCard/SeriesCard (button→div role="button")
+- Removed HLS backend code from vite.config.ts (FFmpeg jobs, sendFile, /api/hls* routes)
+- All /api/hls* routes now return 410 'HLS mode disabled'
+- Build: 3 pre-existing TS errors remain (unrelated to this change)
 
 ## Current project state
 
@@ -206,7 +206,7 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - Project scaffolding (Vite + React + TypeScript + Tailwind)
 - Onboarding screen (Xtream Codes only — M3U URL tab hidden, code kept for post-MVP)
 - Zustand store for playlist sources with `expDate` field for Xtream playlists
-- IndexedDB with Dexie v2 schema: sources, categories, channels, movies, series, episodes, syncMetadata
+- IndexedDB with Dexie v5 schema: sources, categories, channels, movies, series, episodes, syncMetadata, favorites (v4), watchHistory (v5)
 - Web Crypto AES-GCM encryption for credentials (with secure-context guard)
 - UUID generation utility (src/lib/uuid.ts) with non-secure context fallback
 - Vite dev proxy for Xtream API
@@ -250,19 +250,19 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - Production proxy on VPS
 
 ### Not yet built
-- Audio track / subtitle selection
 - Recently Watched / Continue Watching sections
 - EPG (TV Guide) for live channels
 - Settings page (language selection, playback preferences)
 - Multi-language support
 - VPS deployment
+- Audio/Subtitle track selection UI (post-MVP — underlying HLS.js track detection code still exists but no UI exposed)
 
 ## Next feature to build
 Choose one of the following:
 1. **Recently Watched / Continue Watching** — Track last played items, resume from where you left off
 2. **Settings Page** — Language selection, playback preferences, clear cache, logout
 3. **EPG (TV Guide)** — Current/next program for live channels
-4. **Audio/Subtitle Selection** — For movies/episodes with multiple tracks
+4. **Audio/Subtitle Selection UI** — Re-add the selection dropdowns for HLS streams with multiple tracks
 
 ## Recent Layout & Scrollbar Fixes (2026-04-23)
 ### TopNavBar Updates
@@ -421,3 +421,29 @@ All components now use these utilities instead of inline formatting, ensuring co
 **Result**: Correct render order: loading → spinner; loaded and no series → "not found"; loaded and series exists → detail page. No more flash.
 
 **Files changed**: `src/pages/SeriesDetail.tsx`
+
+## HLS Mode Feature Removed (2026-04-26)
+The experimental HLS mode (FFmpeg transcoding backend) was too slow (full movie processing required before playback, causing 15+ minute waits) and caused 404/500/infinite loading errors. It has been fully removed.
+
+### What was removed
+- FFmpeg background jobs, sendFile function, /api/hls* routes from vite.config.ts
+- All /api/hls* routes now return `410 {"error": "HLS mode disabled"}`
+- Audio/Subtitle Control Bar from Watch page (Volume2/Subtitles dropdowns, Open External, Copy URL, Debug Tracks buttons)
+- All track detection state: `audioTracks`, `subtitleTracks`, `showAudioMenu`, `showSubtitleMenu`, `tracksChecked`, `trackAvailabilityMessage`, `externalSubtitleSources`
+- Track selection handlers: `handleAudioTrackSelect`, `handleSubtitleTrackSelect`, `handleToggleSubtitles`
+- Debug functions: `debugTracks`, `debugManifest`, `debugMediaTracksEndpoint`
+- External subtitle loading from Watch page
+- Menu close effects (click outside, Escape key)
+- `.cache/hls` directory deleted
+
+### What was kept
+- mpegts.js player for live TV (.ts streams)
+- Hls.js player for .m3u8 streams (HLS initialization, console.log of track counts — no state updates)
+- All playback functions: `playEpisode`, `playMovie`, `playChannel`, `buildStreamUrl`, `setupVideoSource`
+- Heart favorite button and `handleFavoriteToggle`
+- Channel/movie/episode sidebar
+
+### Backend route status
+- `/api/hls/start`, `/api/hls/poll`, `/api/hls/stop`, `/api/hls/status`, `/api/hls/clear-cache`, `/api/hls/progress` — all return `410 {"error": "HLS mode disabled"}`
+- `/api/debug-media-tracks` — still available in dev mode (ffprobe endpoint for inspecting media files)
+- Embedded track message changed from "HLS mode is used" to: `Embedded tracks may exist, but this browser player may not expose them. Use external player for full audio/subtitle support.`

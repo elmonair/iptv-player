@@ -211,7 +211,7 @@ export default function SeriesDetail() {
       current: from,
       episodeId,
       seriesId,
-      seriesName: seriesInfo?.info?.name || series.name,
+      seriesName: seriesInfo?.info?.name || series?.name || 'Unknown',
       state: { from, tab: 'series', seriesId, seasonId: selectedSeason }
     })
 
@@ -221,7 +221,7 @@ export default function SeriesDetail() {
         tab: 'series',
         seriesId,
         seasonId: selectedSeason,
-        seriesName: seriesInfo?.info?.name || series.name,
+        seriesName: seriesInfo?.info?.name || series?.name || 'Unknown',
         seasonNumber: selectedSeason,
         episodeNumber: episode.episode_num,
         episodeTitle: episode.title || `Episode ${episode.episode_num}`,
