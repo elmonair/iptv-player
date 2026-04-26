@@ -40,7 +40,7 @@ function getItemName(item: WatchableItem): string {
 }
 
 export default function Watch() {
-  const { channelId, episodeId } = useParams<{ channelId: string; episodeId: string }>()
+  const { id: routeId, episodeId } = useParams<{ id: string; episodeId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -706,7 +706,7 @@ export default function Watch() {
   }, [currentItemId])
 
   useEffect(() => {
-    if (!channelId && !episodeId) {
+    if (!routeId && !episodeId) {
       navigate('/live')
       return
     }
@@ -769,8 +769,8 @@ export default function Watch() {
       )
       allItemsRef.current = allItems
 
-      if (channelId) {
-        await zapTo(channelId)
+      if (routeId) {
+        await zapTo(routeId, 'channel')
       }
     }
 
@@ -779,7 +779,7 @@ export default function Watch() {
     return () => {
       destroyPlayer()
     }
-  }, [channelId, episodeId, navigate, zapTo, playEpisode, destroyPlayer, location])
+  }, [routeId, episodeId, navigate, zapTo, playEpisode, destroyPlayer, location])
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-slate-950 flex flex-col select-none">
