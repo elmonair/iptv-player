@@ -9,6 +9,7 @@ import TestPlayer from './pages/TestPlayer'
 import Watch from './pages/Watch'
 import SeriesDetail from './pages/SeriesDetail'
 import MovieDetail from './pages/MovieDetail'
+import WatchLegacyRedirect from './pages/WatchLegacyRedirect'
 import SearchPage from './pages/SearchPage'
 import ErrorBoundary from './components/ErrorBoundary'
 import { usePlaylistStore } from './stores/playlistStore'
@@ -84,8 +85,10 @@ function AppContent() {
       <Route path="/series" element={<Navigate to="/live?tab=series" replace />} />
       <Route path="/series/:seriesId" element={<SeriesDetail />} />
       <Route path="/movie/:movieId" element={<MovieDetail />} />
-      <Route path="/watch/:channelId" element={<Watch />} />
+      <Route path="/watch/live/:id" element={<Watch />} />
+      <Route path="/watch/movie/:id" element={<Watch />} />
       <Route path="/watch/episode/:episodeId" element={<Watch />} />
+      <Route path="/watch/:id" element={<WatchLegacyRedirect />} />
       <Route path="/search" element={<SearchPage />} />
       <Route path="/test-player" element={<TestPlayer />} />
     </Routes>

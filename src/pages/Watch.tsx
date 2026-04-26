@@ -54,6 +54,13 @@ export default function Watch() {
   const activeItemRef = useRef<HTMLButtonElement>(null)
   const hasResumedRef = useRef(false)
 
+  const pathname = location.pathname
+  const routeType: 'live' | 'movie' | 'episode' | null =
+    pathname.includes('/watch/live/') ? 'live' :
+    pathname.includes('/watch/movie/') ? 'movie' :
+    pathname.includes('/watch/episode/') ? 'episode' :
+    null
+
   const [status, setStatus] = useState<WatchStatus>('loading')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [itemName, setItemName] = useState<string>('')
@@ -195,7 +202,7 @@ export default function Watch() {
       return
     }
 
-    if (currentType === 'episode' || currentType === 'series') {
+    if (currentType === 'episode') {
       const seriesId = navState?.seriesId
       if (seriesId) {
         navigate(`/series/${encodeURIComponent(seriesId)}`, { replace: true })
@@ -211,7 +218,7 @@ export default function Watch() {
     if (currentType === 'channel') {
       const ctx = useBrowseStore.getState().exitPlayer()
       if (ctx && ctx.section === 'live') {
-        const categoryId = ctx.selectedCategoryId
+        const categoryId = ctx.categoryId
         const params = new URLSearchParams()
         params.set('tab', 'channels')
         if (categoryId && categoryId !== 'all') {
@@ -769,8 +776,8 @@ export default function Watch() {
       )
       allItemsRef.current = allItems
 
-      if (routeId) {
-        await zapTo(routeId, 'channel')
+      if (routeId && routeType) {
+        await zapTo(routeId)
       }
     }
 
@@ -779,7 +786,7 @@ export default function Watch() {
     return () => {
       destroyPlayer()
     }
-  }, [routeId, episodeId, navigate, zapTo, playEpisode, destroyPlayer, location])
+  }, [routeId, routeType, episodeId, navigate, zapTo, playEpisode, destroyPlayer, location])
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-slate-950 flex flex-col select-none">

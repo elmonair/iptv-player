@@ -387,7 +387,7 @@ export default function ChannelCategories() {
       categoryId: selectedCategoryId,
       scrollY
     })
-    navigate(`/watch/${encodeURIComponent(item.id)}`, {
+    navigate(`/watch/live/${encodeURIComponent(item.id)}`, {
       state: {
         from: '/live?tab=channels',
         tab: 'channels',

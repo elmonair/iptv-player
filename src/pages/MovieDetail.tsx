@@ -151,7 +151,7 @@ export default function MovieDetail() {
       state: { from, tab: 'movies', categoryId }
     })
 
-    navigate(`/watch/${encodeURIComponent(movie.id)}`, {
+    navigate(`/watch/movie/${encodeURIComponent(movie.id)}`, {
       state: {
         from,
         tab: 'movies',

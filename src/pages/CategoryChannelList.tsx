@@ -45,7 +45,7 @@ export default function CategoryChannelList() {
     enterPlayer(channelId)
     setFocusedItem(channelId)
     selectCategory(catId, categoryName ?? null)
-    navigate(`/watch/${encodeURIComponent(channelId)}`, {
+    navigate(`/watch/live/${encodeURIComponent(channelId)}`, {
       state: { returnCategoryId: catId || '__all__', returnChannelId: channel?.id },
     })
   }

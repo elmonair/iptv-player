@@ -24,7 +24,7 @@ export default function LiveTV() {
 
   const handleChannelClick = (channel: ChannelRecord) => {
     console.log('[LiveTV] Channel clicked, navigating to watch:', { name: channel.name, streamId: channel.streamId })
-    navigate(`/watch/${encodeURIComponent(channel.id)}`)
+    navigate(`/watch/live/${encodeURIComponent(channel.id)}`)
   }
 
   return (
