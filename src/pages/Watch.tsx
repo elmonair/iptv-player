@@ -503,9 +503,16 @@ export default function Watch() {
             }))
           }
         }
+        videoEl.onloadedmetadata = () => {
+          const channelId = item.data.id
+          const history = getWatchHistory()
+          const savedProgress = history.find(h => h.itemType === 'channel' && h.itemId === channelId)
+          handleLoadedMetadata(savedProgress)
+        }
         videoEl.onplaying = () => {
           setStatus('playing')
           setLastChannelId(item.data.id)
+          startProgressTracking('channel', item.data.id)
           statsIntervalRef.current = setInterval(() => {
             if (videoEl.videoWidth && videoEl.videoHeight) {
               setVideoInfo((prev) => {

@@ -86,22 +86,9 @@ export const useWatchHistoryStore = create<WatchHistoryState & WatchHistoryActio
       const hasDuration = duration > 0
       const hasProgress = h.position > 0
       const notFinished = hasDuration ? h.position < duration * 0.9 : false
-      const result = hasDuration && hasProgress && notFinished
-      console.log('[WatchHistory] getContinueWatching filter:', {
-        itemType: h.itemType,
-        itemId: h.itemId,
-        position: h.position,
-        duration: h.duration,
-        hasDuration,
-        hasProgress,
-        notFinished,
-        result
-      })
-      return result
+      return hasDuration && hasProgress && notFinished
     })
-    const sorted = filtered.sort((a, b) => b.lastWatched - a.lastWatched)
-    console.log('[WatchHistory] getContinueWatching result:', sorted.length, 'items')
-    return sorted
+    return filtered.sort((a, b) => b.lastWatched - a.lastWatched)
   },
 
   clearWatchHistory: async () => {

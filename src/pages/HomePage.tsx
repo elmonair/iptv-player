@@ -220,20 +220,7 @@ function ContinueWatchingSection({ navigate }: ContinueWatchingSectionProps) {
   const getContinueWatching = useWatchHistoryStore((state) => state.getContinueWatching)
   const continueWatching = getContinueWatching()
 
-  console.log('[HomePage ContinueWatchingSection] Items:', continueWatching.length, continueWatching)
-
   if (continueWatching.length === 0) return null
-
-  // Add debug function to console
-  if (typeof window !== 'undefined') {
-    (window as any).debugWatchHistory = async () => {
-      console.log('[Debug] All watchHistory records:')
-      const allHistory = await db.watchHistory.toArray()
-      console.table(allHistory)
-      console.log('[Debug] Continue watching items:', continueWatching)
-      return { allHistory, continueWatching }
-    }
-  }
 
   return (
     <div>
@@ -286,12 +273,6 @@ function ContinueWatchingCard({ item, navigate }: ContinueWatchingCardProps) {
 
   const handleClick = () => {
     const from = location.pathname + location.search
-
-    console.log('[ContinueWatchingCard] Open item:', {
-      current: from,
-      itemType: item.itemType,
-      itemId: item.itemId
-    })
 
     if (item.itemType === 'channel') {
       navigate(`/watch/channel/${encodeURIComponent(item.itemId)}`, {

@@ -188,17 +188,15 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - Comment the "why" for non-obvious code, not the "what"
 
 ## Latest Commit
-**Commit**: `c591021` — "Remove player action bar below video and clean up dead code" (2026-04-26)
-**Changes**: 7 files changed, 265 insertions(+), 375 deletions(-)
+**Commit**: `da5f9f2` — "Fix watch progress tracking for channels and clean up debug logs" (2026-04-26)
+**Changes**: 3 files changed, 9 insertions(+), 34 deletions(-)
 **Key changes**:
-- Removed Audio/Subtitle Control Bar from Watch page (Volume2/Subtitles dropdowns, track availability text, Open External, Copy URL, Debug Tracks buttons)
-- Removed all track detection code (audioTracks/subtitleTracks state, updateTracks useEffect, HLS/native track event listeners, delayed setTimeout checks)
-- Removed handleAudioTrackSelect/handleSubtitleTrackSelect/handleToggleSubtitles/handleOpenExternalPlayer/handleCopyStreamUrl/debug* handlers
-- Simplified setupVideoSource (HLS init + console.log only, no state updates)
-- Fixed nested button warnings in ChannelCard/MovieCard/SeriesCard (button→div role="button")
-- Removed HLS backend code from vite.config.ts (FFmpeg jobs, sendFile, /api/hls* routes)
-- All /api/hls* routes now return 410 'HLS mode disabled'
-- Build: 3 pre-existing TS errors remain (unrelated to this change)
+- Added `onloadedmetadata` handler to channel playback (mpegts path) that calls `handleLoadedMetadata` to restore saved position
+- Added `startProgressTracking('channel', item.data.id)` to channel `onplaying` handler
+- Removed debug console.logs from `getContinueWatching` filter logic
+- Removed debug `debugWatchHistory` window function from ContinueWatchingSection
+- Removed console.log from ContinueWatchingCard handleClick
+- Build: 3 pre-existing TS errors remain (currentCategoryId, type comparison, selectedCategoryId — all unrelated)
 
 ## Current project state
 
@@ -242,6 +240,7 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - **Unified detail page design**: MovieDetail and SeriesDetail share same visual style (backdrop, poster, badges, buttons, info panel)
 - **Channel favorites bug fix**: Heart button added to inline ChannelCard in ChannelCategories.tsx with stopPropagation
 - **Series loading flash bug fix**: Reset loading on seriesId change, treat series===undefined as loading, null-safe seriesInfo access
+- **Watch progress tracking**: `startProgressTracking` saves position every 10s via `updateWatchProgress`; `handleLoadedMetadata` resumes from saved position on channel/movie/episode load; `stopProgressTracking` clears interval on unmount
 
 ### Deferred (post-MVP)
 - M3U URL parsing (code stub exists for M3uUrlForm, tab hidden)
@@ -250,7 +249,7 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - Production proxy on VPS
 
 ### Not yet built
-- Recently Watched / Continue Watching sections
+- "Recently Watched" full history list (only Continue Watching <90% is shown)
 - EPG (TV Guide) for live channels
 - Settings page (language selection, playback preferences)
 - Multi-language support
@@ -259,10 +258,10 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 
 ## Next feature to build
 Choose one of the following:
-1. **Recently Watched / Continue Watching** — Track last played items, resume from where you left off
-2. **Settings Page** — Language selection, playback preferences, clear cache, logout
-3. **EPG (TV Guide)** — Current/next program for live channels
-4. **Audio/Subtitle Selection UI** — Re-add the selection dropdowns for HLS streams with multiple tracks
+1. **Settings Page** — Language selection, playback preferences, clear cache, logout
+2. **EPG (TV Guide)** — Current/next program for live channels
+3. **Audio/Subtitle Selection UI** — Re-add the selection dropdowns for HLS streams with multiple tracks
+4. **Recently Watched** — Full watch history list (all items, not just Continue Watching)
 
 ## Recent Layout & Scrollbar Fixes (2026-04-23)
 ### TopNavBar Updates
