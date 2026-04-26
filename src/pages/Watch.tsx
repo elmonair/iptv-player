@@ -774,6 +774,7 @@ export default function Watch() {
 
           console.log('[Watch] Playing episode:', episodeState.episodeTitle)
           await playEpisode(episodeState)
+          initRef.current = false
           return
         }
 
@@ -796,7 +797,9 @@ export default function Watch() {
           console.log('[Watch] Calling zapTo with routeId:', routeId)
           await zapTo(routeId)
         }
-      } finally {
+        initRef.current = false
+      } catch (err) {
+        console.error('[Watch] Init error:', err)
         initRef.current = false
       }
     }
@@ -804,6 +807,7 @@ export default function Watch() {
     init()
 
     return () => {
+      initRef.current = false
       destroyPlayer()
     }
   }, [routeId, routeType, episodeId, navigate, zapTo, playEpisode, destroyPlayer, location])
