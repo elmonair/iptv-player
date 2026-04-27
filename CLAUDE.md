@@ -219,11 +219,17 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - Dark theme throughout
 - Mobile responsive design
 - Proxy server for live TV streams (CORS bypass)
+- EPG (TV Guide) with XMLTV parser — 128K+ programmes, 1765 channels
+- EPG syncs directly from provider's xmltv.php endpoint
+- Streaming XML parser handles 42MB+ files without memory issues
+- EPG data stored in Dexie with auto-sync every 24 hours
+- Manual Sync EPG button on TV Guide page
 
 ### Known limitations
 - Series .mkv files play only if browser supports the codec
 - Some IPTV providers may buffer due to slow servers (not code issue)
-- No EPG (TV guide) yet
+- EPG availability depends on provider — some channels have no EPG data
+- get_short_epg API not supported by most providers, using XMLTV instead
 - No search yet
 - No multi-language yet
 
@@ -247,6 +253,19 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
   - Passes through upstream Content-Type as-is
 - Movies and series use direct provider URLs (no proxy)
 
+## EPG architecture
+- Fetches XMLTV directly from provider (NOT through Vite proxy):
+  ${serverUrl}/xmltv.php?username=X&password=Y
+- Streaming XML parser: reads chunks via ReadableStream, extracts
+  <programme> blocks incrementally, batch inserts 500 at a time
+- Dexie table: epg with ++id, channelId, sourceId, start, stop
+- Match channels via epg_channel_id field from Xtream API
+- Title and description may be Base64 encoded — parser handles both
+- DO NOT use /api/xtream/ proxy for xmltv.php (returns 404)
+- DO NOT use get_short_epg API (most providers return empty or 400)
+- DO NOT load entire XML into memory (files can be 42MB+)
+- DO NOT use bulkAdd for EPG — use bulkPut (handles re-sync duplicates)
+
 ## Bugs fixed (2026-04-27 session)
 - Live TV sidebar channel switching race condition (empty src)
 - Series episode sidebar switching race condition (same fix)
@@ -257,9 +276,14 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - Watch history for live channels causing buffering (disabled)
 - Channel error overlay flashing during normal transitions (3s delay)
 - Channel unavailable overlay redesigned (minimal + auto-advance)
+- EPG xmltv.php fetched through wrong proxy (404) — use direct URL
+- EPG streaming parser not trimming buffer (0 programs parsed)
+- EPG parseProgrammeBlock regex not matching title without lang attr
+- EPG Dexie bulkAdd failing on re-sync duplicates — changed to bulkPut
 
 ## Next features to build
 - Search across channels, movies, series
-- EPG (TV guide) - show now/next
+- EPG schedule view — click channel to see 12h program list
+- EPG on Watch page sidebar — show Now/Next below channel name
 - Multi-language support
 - VPS deployment with production proxy
