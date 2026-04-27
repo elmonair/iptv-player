@@ -170,3 +170,37 @@ export type XtreamSeriesInfo = {
     }>
   >
 }
+
+export type XtreamEpgEntry = {
+  id: string
+  epg_id: string
+  title: string
+  description: string
+  start: string
+  end: string
+  start_timestamp: number
+  stop_timestamp: number
+  now_playing?: number
+  has_archive?: number
+  [key: string]: unknown
+}
+
+export type XtreamEpgResponse = {
+  epg_listings?: XtreamEpgEntry[]
+  [key: string]: unknown
+}
+
+export type EpgEntry = {
+  id: string
+  epgId: string
+  title: string
+  description: string
+  start: string
+  end: string
+  startTimestamp: number
+  stopTimestamp: number
+  nowPlaying?: boolean
+  hasArchive?: boolean
+}
+
+export type XtreamEpgList = XtreamEpgEntry[]

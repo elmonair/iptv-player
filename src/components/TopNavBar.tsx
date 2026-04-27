@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Film, Search, User, ChevronDown, ChevronUp, Shield, Monitor, Eye, EyeOff } from 'lucide-react'
+import { Film, Search, Calendar, User, ChevronDown, ChevronUp, Shield, Monitor, Eye, EyeOff } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
 
 function getDeviceId(): string {
@@ -70,6 +70,14 @@ export function TopNavBar() {
 
       {/* Right: Search + User */}
       <div className="flex items-center gap-1 sm:gap-2">
+        <button
+          onClick={() => navigate('/epg')}
+          className="w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+          aria-label="TV Guide"
+          title="TV Guide"
+        >
+          <Calendar size={20} />
+        </button>
         <button
           onClick={() => navigate('/search')}
           className="w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"

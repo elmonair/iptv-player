@@ -9,7 +9,9 @@ import { useBrowseStore } from '../stores/browseStore'
 import { useFavoritesStore } from '../stores/favoritesStore'
 import { useWatchHistoryStore } from '../stores/watchHistoryStore'
 import { getSeriesInfo } from '../lib/xtream'
+import { getEpgForChannel } from '../lib/epgParser'
 import type { ChannelRecord, MovieRecord } from '../lib/db'
+import type { EpgProgram } from '../lib/epgParser'
 
 type WatchStatus = 'loading' | 'ready-click-to-play' | 'playing' | 'error'
 type EpisodeInfo = {
@@ -96,8 +98,9 @@ export default function Watch() {
   const [currentType, setCurrentType] = useState<'channel' | 'movie' | 'episode'>('channel')
   const [activeSource, setActiveSource] = useState<Awaited<ReturnType<typeof getActiveSource>> | null>(null)
   const [lastVideoErrorCode, setLastVideoErrorCode] = useState<number | null>(null)
-  const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
+const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const [autoAdvanceSeconds, setAutoAdvanceSeconds] = useState<number | null>(null)
+  const [channelEpg, setChannelEpg] = useState<Record<string, EpgProgram | null>>({})
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
@@ -931,6 +934,22 @@ export default function Watch() {
         )
         allItemsRef.current = allItems
 
+        const now = Math.floor(Date.now() / 1000)
+        const epgPromises = channels
+          .filter((c) => c.epgChannelId)
+          .map((c) =>
+            getEpgForChannel(c.epgChannelId!, source.id, now).then((result) => ({
+              channelId: c.id,
+              current: result.current,
+            }))
+          )
+        const epgResults = await Promise.all(epgPromises)
+        const newChannelEpg: Record<string, EpgProgram | null> = {}
+        for (const r of epgResults) {
+          newChannelEpg[r.channelId] = r.current
+        }
+        setChannelEpg(newChannelEpg)
+
         if (routeId && routeType) {
           await zapTo(routeId)
         }
@@ -1256,6 +1275,11 @@ export default function Watch() {
                           </div>
                         )}
                         <span className="flex-1 text-sm font-medium truncate text-left">{itemName}</span>
+                        {item.type === 'channel' && channelEpg[item.data.id] && (
+                          <span className="text-xs text-slate-500 truncate max-w-[100px]">
+                            Now: {channelEpg[item.data.id]?.title}
+                          </span>
+                        )}
                       </button>
                     )
                   })}

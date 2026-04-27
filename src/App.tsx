@@ -11,10 +11,13 @@ import SeriesDetail from './pages/SeriesDetail'
 import MovieDetail from './pages/MovieDetail'
 import WatchLegacyRedirect from './pages/WatchLegacyRedirect'
 import SearchPage from './pages/SearchPage'
+import EpgPage from './pages/EpgPage'
 import ErrorBoundary from './components/ErrorBoundary'
 import { usePlaylistStore } from './stores/playlistStore'
 import { useFavoritesStore } from './stores/favoritesStore'
 import { useWatchHistoryStore } from './stores/watchHistoryStore'
+import { db } from './lib/db'
+import { parseAndStoreXmltv, clearEpgForSource } from './lib/epgParser'
 
 function AppContent() {
   const navigate = useNavigate()
@@ -44,6 +47,23 @@ function AppContent() {
           if (activeSource) {
             loadFavorites(activeSource.id).catch(console.error)
             loadWatchHistory(activeSource.id).catch(console.error)
+
+            if (activeSource.type === 'xtream') {
+              const now = Date.now()
+              const oneDayMs = 24 * 60 * 60 * 1000
+              db.syncMetadata.where('sourceId').equals(activeSource.id).first().then((meta) => {
+                if (!meta?.lastEpgSyncAt || now - meta.lastEpgSyncAt > oneDayMs) {
+                  console.log('[App] Auto-syncing EPG (last sync was > 24h ago or never)')
+                  clearEpgForSource(activeSource.id).catch(() => {})
+                  parseAndStoreXmltv(
+                    activeSource.serverUrl,
+                    activeSource.username,
+                    activeSource.password,
+                    activeSource.id
+                  ).catch((err) => console.warn('[App] Auto EPG sync failed:', err))
+                }
+              })
+            }
           }
         }
         initialRouteHandled.current = true
@@ -90,6 +110,7 @@ function AppContent() {
       <Route path="/watch/episode/:episodeId" element={<Watch />} />
       <Route path="/watch/:id" element={<WatchLegacyRedirect />} />
       <Route path="/search" element={<SearchPage />} />
+      <Route path="/epg" element={<EpgPage />} />
       <Route path="/test-player" element={<TestPlayer />} />
     </Routes>
   )

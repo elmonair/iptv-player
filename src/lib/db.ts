@@ -92,6 +92,7 @@ export type EpisodeRecord = {
 export type SyncMetadataRecord = {
   sourceId: string
   lastSyncAt: number
+  lastEpgSyncAt?: number
   channelsCount: number
   moviesCount: number
   seriesCount: number
@@ -117,6 +118,16 @@ export type WatchHistoryRecord = {
   lastWatched: number
 }
 
+export type EpgProgramRecord = {
+  id?: number
+  channelId: string
+  title: string
+  description: string
+  start: number
+  stop: number
+  sourceId: string
+}
+
 class IptvDatabase extends Dexie {
   sources!: Table<PlaylistSourceRecord>
   categories!: Table<CategoryRecord>
@@ -127,6 +138,7 @@ class IptvDatabase extends Dexie {
   syncMetadata!: Table<SyncMetadataRecord>
   favorites!: Table<FavoriteRecord>
   watchHistory!: Table<WatchHistoryRecord>
+  epg!: Table<EpgProgramRecord>
 
   constructor() {
     super('IptvDatabase')
@@ -176,6 +188,32 @@ class IptvDatabase extends Dexie {
       syncMetadata: 'sourceId',
       favorites: 'id, itemType, itemId, sourceId, addedAt',
       watchHistory: 'id, itemType, itemId, sourceId, lastWatched',
+    })
+
+    this.version(6).stores({
+      sources: 'id, type, createdAt',
+      categories: 'id, sourceId, type, externalId',
+      channels: 'id, sourceId, categoryId, name, externalId, epgChannelId',
+      movies: 'id, sourceId, categoryId, name, year, externalId',
+      series: 'id, sourceId, categoryId, name, externalId',
+      episodes: 'id, seriesId, seasonNumber, episodeNumber, externalId',
+      syncMetadata: 'sourceId',
+      favorites: 'id, itemType, itemId, sourceId, addedAt',
+      watchHistory: 'id, itemType, itemId, sourceId, lastWatched',
+      epg: '++id, [channelId+start], channelId, start, stop, sourceId',
+    })
+
+    this.version(7).stores({
+      sources: 'id, type, createdAt',
+      categories: 'id, sourceId, type, externalId',
+      channels: 'id, sourceId, categoryId, name, externalId, epgChannelId',
+      movies: 'id, sourceId, categoryId, name, year, externalId',
+      series: 'id, sourceId, categoryId, name, externalId',
+      episodes: 'id, seriesId, seasonNumber, episodeNumber, externalId',
+      syncMetadata: 'sourceId',
+      favorites: 'id, itemType, itemId, sourceId, addedAt',
+      watchHistory: 'id, itemType, itemId, sourceId, lastWatched',
+      epg: '++id, [channelId+start], channelId, start, stop, sourceId',
     })
   }
 }

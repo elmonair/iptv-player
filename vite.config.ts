@@ -353,6 +353,45 @@ export default defineConfig({
             return
           }
 
+          if (url.startsWith('/api/xtream')) {
+            const requestUrl = new URL(url, 'http://localhost')
+            const serverUrl = requestUrl.searchParams.get('serverUrl')
+
+            if (!serverUrl) {
+              sendJson(res, 400, { error: 'Missing serverUrl parameter' })
+              return
+            }
+
+            const targetUrl = `${serverUrl.replace(/\/$/, '')}${requestUrl.pathname}${requestUrl.search}`
+            console.log('[XTREAM PROXY] Forwarding to:', {
+              targetUrl: targetUrl.replace(/&password=[^&]+/, '&password=[HIDDEN]'),
+            })
+
+            try {
+              const upstream = await fetch(targetUrl)
+
+              if (!upstream.ok) {
+                sendJson(res, upstream.status, { error: `Upstream error: ${upstream.statusText}` })
+                return
+              }
+
+              res.writeHead(upstream.status, {
+                'Content-Type': upstream.headers.get('Content-Type') || 'application/json',
+                'Access-Control-Allow-Origin': '*',
+              })
+
+              const body = await upstream.text()
+              res.end(body)
+            } catch (err) {
+              console.error('[XTREAM PROXY] Failed:', err)
+              sendJson(res, 503, {
+                error: 'Xtream API proxy failed',
+                details: err instanceof Error ? err.message : String(err),
+              })
+            }
+            return
+          }
+
           if (url.startsWith('/proxy/live/')) {
             const requestUrl = new URL(url, 'http://localhost')
             const pathMatch = requestUrl.pathname.match(/^\/proxy\/live\/([^/]+)\/(\d+)$/)
