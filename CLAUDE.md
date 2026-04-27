@@ -198,251 +198,68 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - Removed console.log from ContinueWatchingCard handleClick
 - Build: 3 pre-existing TS errors remain (currentCategoryId, type comparison, selectedCategoryId — all unrelated)
 
-## Current project state
+## Current project state (updated 2026-04-27)
 
-### Completed
-- Project scaffolding (Vite + React + TypeScript + Tailwind)
-- Onboarding screen (Xtream Codes only — M3U URL tab hidden, code kept for post-MVP)
-- Zustand store for playlist sources with `expDate` field for Xtream playlists
-- IndexedDB with Dexie v5 schema: sources, categories, channels, movies, series, episodes, syncMetadata, favorites (v4), watchHistory (v5)
-- Web Crypto AES-GCM encryption for credentials (with secure-context guard)
-- UUID generation utility (src/lib/uuid.ts) with non-secure context fallback
-- Vite dev proxy for Xtream API
-- Xtream API client (src/lib/xtream.ts) — all 8 endpoints (including get_vod_info)
-- Xtream sync orchestrator (callback-based, not async generator)
-- Loading page with progress bar
-- Home page with reactive catalog counts (dexie-react-hooks useLiveQuery)
-- Re-sync button, Clear all data button
-- Strict Mode disabled
-- AppLayout shell with TopNavBar (MishaPlayer branding with yellow accent)
-- TopNavBar: Status bar with Membership/Playlist/Device ID, PIN code with eye toggle, user dropdown, playlist expiry date, Search icon, playlist dropdown
-- Live TV page: CategorySidebar with scroll, ChannelGrid with scroll, sticky sidebar on desktop
-- ChannelCategories page: Tabs, category sidebar, channel grid preview, mobile view state
-- Watch page: Video player (16:9 aspect ratio), channel list sidebar, fullscreen toggle, prev/next channels, keyboard navigation (↑/↓), mobile layout (40vh player / 60% list)
-- Player page layout: side-by-side on desktop, stacked on mobile
-- Scrollbars: Custom styling for category list and channel grid (10px width)
-- Height constraints: `h-screen` + `overflow-hidden` + `min-h-0` for proper flex scrolling
-- **Movies UI**: MovieCard (poster style, gradient overlay, rating badge), MovieCategories (violet selected state, filter input), MovieGrid (skeleton loading, empty state), Movies page (content header), Movies Home (Recently Added, Browse Categories)
-- **Series UI**: SeriesCard (poster style), SeriesCategories, SeriesGrid, Series page
-- **Movie Detail page** (`/movie/:movieId`): Hero with cinematic backdrop, poster, info, Play/Favorite buttons, Overview, Cast, Available Versions, "More Like This", right info panel (desktop), smart badges (quality, language, provider)
-- **Movie metadata loading**: getVodInfo API call, parses VOD ID from route (movie-104817 → 104817), loads plot, description, genre, cast, director, duration, releasedate, backdrop_path, movie_image
-- **Series Detail page** (`/series/:seriesId`): SeriesHero, SeasonSelector (horizontal tabs), EpisodeList (clickable rows), mobile refinements
-- **Series episode playback**: Episode click opens Watch page with all episodes list
-- **Search page** (`/search`): Real-time search with 300ms debounce, filter toggles, grouped results
-- **ErrorBoundary**: Catches render errors with "Go Home" and "Reload" buttons
-- **browseStore**: Navigation state persistence (section, selectedCategoryId, selectedCategoryName, scrollTop, focusedItemId, selectedSeriesId, selectedSeasonNumber, selectedEpisodeId, focusedEpisodeId, episodeListScrollTop)
-- **Hierarchical back navigation**: Episode → Series Detail → Series category grid → Series categories list
-- **Playlist switching**: `isActive` persistence in IndexedDB, auto-switch on delete
-- **Favorites system**: `favoritesStore` (Zustand), `FavoriteRecord` type in Dexie (id, itemType, itemId, sourceId, addedAt), heart buttons on MovieCard, SeriesCard, ChannelCard, MovieDetail, SeriesDetail, Watch page, EpisodeList; Favorites category in all 3 tabs
-- **Dexie schema v4**: favorites table added; series/movies/channels have `externalId` index
-- **Series detail loading fix**: Loading state separate from not-found; uses `db.series.toArray().find()` instead of indexed externalId query to avoid schema errors
-- **formatRating crash fix**: Handles string ratings (e.g. "8.5"), null, undefined, empty; returns fallback 'N/A' instead of crashing; no `.toFixed()` direct calls anywhere
-- **Unified detail page design**: MovieDetail and SeriesDetail share same visual style (backdrop, poster, badges, buttons, info panel)
-- **Channel favorites bug fix**: Heart button added to inline ChannelCard in ChannelCategories.tsx with stopPropagation
-- **Series loading flash bug fix**: Reset loading on seriesId change, treat series===undefined as loading, null-safe seriesInfo access
-- **Watch progress tracking**: `startProgressTracking` saves position every 10s via `updateWatchProgress`; `handleLoadedMetadata` resumes from saved position on channel/movie/episode load; `stopProgressTracking` clears interval on unmount
+### Working features
+- Xtream Codes API integration (multi-provider support)
+- Live TV with category sidebar, channel grid, logos
+- Movies section with grid and playback
+- Series section with seasons/episodes and playback
+- Video player: mpegts.js for live TV, native video for movies/series
+- HLS.js support for .m3u8 streams
+- Channel switching via sidebar, arrow keys
+- Auto-advance to next channel on error (5s countdown)
+- Clean error overlay for unavailable channels
+- Watch history with resume for movies/episodes (not live)
+- Favorites (star icon)
+- Playlist sync and management
+- Top navigation with membership/playlist/device info
+- User dropdown menu with PIN code
+- Home page with welcome, stats, quick actions
+- Dark theme throughout
+- Mobile responsive design
+- Proxy server for live TV streams (CORS bypass)
 
-### Deferred (post-MVP)
-- M3U URL parsing (code stub exists for M3uUrlForm, tab hidden)
-- Sync performance optimization (~100 items/sec, can be 3-5x faster)
-- Autocomplete attributes on form inputs
-- Production proxy on VPS
+### Known limitations
+- Series .mkv files play only if browser supports the codec
+- Some IPTV providers may buffer due to slow servers (not code issue)
+- No EPG (TV guide) yet
+- No search yet
+- No multi-language yet
 
-### Not yet built
-- "Recently Watched" full history list (only Continue Watching <90% is shown)
-- EPG (TV Guide) for live channels
-- Settings page (language selection, playback preferences)
+### Video player stack
+- Live TV: mpegts.js with these config settings:
+  enableWorker: false, enableStashBuffer: true,
+  stashInitialSize: 1MB, liveBufferLatencyChasing: false,
+  liveSync: false, lazyLoad: false, fixAudioTimestampGap: true
+- Movies/Series: native <video> element (direct URL to provider)
+- HLS streams: Hls.js
+- DO NOT add response timeouts to the live proxy (kills streams)
+- DO NOT save watch history for live channels (causes buffering)
+- DO NOT use enableWorker:true with relative URLs (Workers cant use them)
+- DO NOT override Content-Type header for live streams in proxy
+
+### Proxy architecture
+- /api/xtream/* — Vite proxy for Xtream Codes API calls
+- /proxy/live/* — Custom middleware for live TV streams
+  - Pipes upstream response directly (no buffering)
+  - Connection timeout only (10s), NO response timeout
+  - Passes through upstream Content-Type as-is
+- Movies and series use direct provider URLs (no proxy)
+
+## Bugs fixed (2026-04-27 session)
+- Live TV sidebar channel switching race condition (empty src)
+- Series episode sidebar switching race condition (same fix)
+- Series episode URL building (matches movie pattern now)
+- Proxy 30-second response timeout killing live streams
+- Proxy Content-Type override corrupting MPEG-TS data
+- mpegts.js zero config causing buffering (added proper buffer settings)
+- Watch history for live channels causing buffering (disabled)
+- Channel error overlay flashing during normal transitions (3s delay)
+- Channel unavailable overlay redesigned (minimal + auto-advance)
+
+## Next features to build
+- Search across channels, movies, series
+- EPG (TV guide) - show now/next
 - Multi-language support
-- VPS deployment
-- Audio/Subtitle track selection UI (post-MVP — underlying HLS.js track detection code still exists but no UI exposed)
-
-## Next feature to build
-Choose one of the following:
-1. **Settings Page** — Language selection, playback preferences, clear cache, logout
-2. **EPG (TV Guide)** — Current/next program for live channels
-3. **Audio/Subtitle Selection UI** — Re-add the selection dropdowns for HLS streams with multiple tracks
-4. **Recently Watched** — Full watch history list (all items, not just Continue Watching)
-
-## Recent Layout & Scrollbar Fixes (2026-04-23)
-### TopNavBar Updates
-- Added PIN code display with eye toggle in user dropdown (Xtream password)
-- Added playlist expiry date display beside playlist name (from exp_date field)
-
-### Watch Page Fixes
-- Player layout: side-by-side on desktop (flex-1 + lg:flex-row), stacked on mobile
-- Player container: `aspect-video` with `key={channelName}` for proper remount
-- Video: `w-full h-full object-contain` + `autoPlay`
-- Mobile: player `h-[40vh]` (40% viewport), channel list `flex-1` (60%)
-- Channel list: `overflow-y-scroll` with custom scrollbar (10px width)
-
-### LiveTV Page Fixes
-- Root container: `h-screen flex flex-col overflow-hidden`
-- Content wrapper: `flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0`
-- Desktop sidebar: `sticky top-0 h-screen` + `overflow-y-auto` on nav inside CategorySidebar
-- Channel grid: `overflow-y-auto lg:max-h-[calc(vertHeight-200px)]`
-- Independent scroll for sidebar and grid
-
-### CategorySidebar Component
-- Root: `w-full h-full flex flex-col overflow-hidden`
-- Scrollable nav: `flex-1 overflow-y-auto min-h-0`
-- This ensures scrollbar appears when content overflows available height
-
-### CategoryCategories Page Fixes
-- Root: `h-screen bg-slate-900 flex flex-col overflow-hidden`
-- Content: `flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0`
-- This prevents sidebar from growing beyond viewport height (was 715,314px tall bug)
-
-### Scrollbar Styling (src/index.css)
-- `.overflow-y-scroll::-webkit-scrollbar` = 10px width, slate track, slate thumb
-- Firefox support with `scrollbar-width: thin`
-- Prominent, always-visible scrollbar for better UX
-
-### Critical Height Constraint Pattern
-For proper flex scrolling in nested containers:
-- Root: `h-screen flex flex-col overflow-hidden`
-- Content wrapper: `flex-1 flex flex-col lg:flex-row overflow-hidden min-h-0`
-- Scrollable area: `flex-1 overflow-y-auto min-h-0`
-- Fixed elements: `flex-shrink-0`
-Without `min-h-0` on flex children, they won't shrink below their content size, breaking scroll.
-
-## Movie Metadata Implementation (2026-04-25)
-### Xtream API Updates
-- Added `XtreamVodInfo` type in `src/lib/xtreamTypes.ts` with `info` and optional `movie_data` fields
-- Added `getVodInfo()` API function in `src/lib/xtream.ts` to call `action=get_vod_info&vod_id=<id>`
-
-### MovieDetail Page Updates
-- Parses VOD ID from route parameter (e.g., `movie-104817` → extracts `104817`)
-- Fetches full VOD metadata on component mount using `getVodInfo()`
-- Added debug console logs for troubleshooting:
-  - Selected movie object
-  - Route/movie ID
-  - Extracted VOD ID
-  - API URL (password masked for security)
-  - Raw API response
-  - Extracted metadata fields
-- Uses metadata with comprehensive fallbacks:
-  - Overview: `info.plot` → `info.description` → `movie_data.plot` → `movie_data.description` → `movie.plot` → `movie.description`
-  - Year, rating, genre, cast, director, duration, release date from API or local data
-  - Backdrop and poster images from API or local data
-- Only fetches metadata for Xtream sources (checks `activeSource.type === 'xtream'`)
-- Updated `MovieRecord` type to include optional `description` field
-
-### Debugging Console Output
-All MovieDetail logs use `[MovieDetail]` prefix:
-- `[MovieDetail] Selected movie object:` — full movie record from IndexedDB
-- `[MovieDetail] Route/movie ID:` — route parameter value
-- `[MovieDetail] Extracted VOD ID:` — parsed numeric VOD ID
-- `[MovieDetail] Calling get_vod_info API:` — API URL with password masked
-- `[MovieDetail] Raw get_vod_info response:` — full API response object
-- `[MovieDetail] Extracted fields:` — all metadata fields with values
-- `[MovieDetail] Provider did not return movie metadata for vod_id:` — if API returns no data
-- `[MovieDetail] Error fetching VOD info:` — if API call fails
-
-## Shared Metadata Utilities (2026-04-25)
-Created `src/lib/metadata.ts` with reusable utilities:
-- `parseTitle(name: string)` — extracts cleanTitle, year, quality, language, provider from movie/series names
-- `getCleanTitleForComparison(name: string)` — returns clean title for matching "More Like This" content
-- `formatRating(rating: unknown, fallback = 'N/A'): string` — safe formatter handles string, number, null, undefined, empty strings; always returns string, never crashes
-- `formatYear(year: unknown, parsedYear?: number): string | null`
-- `formatDuration(duration: unknown): string | null`
-- `formatReleaseDate(date: unknown): string | null`
-
-All components now use these utilities instead of inline formatting, ensuring consistent safe handling across the app.
-
-## Series Detail Page Implementation (2026-04-25)
-- Matches MovieDetail visual design: cinematic backdrop, poster, badges (rating, year, genre, cast, director, release date), Play/Favorite buttons, Overview, Cast, Director, right info panel (desktop)
-- SeasonSelector: horizontal tabs for seasons, persists selected season in browseStore
-- EpisodeList: clickable rows with play button and heart favorite button, episode number, title, duration
-- Loading state: separate from "not found" — shows spinner until useLiveQuery returns (not undefined)
-- API: calls `getSeriesInfo()` on mount, fetches all seasons/episodes for the series
-- Favorites: heart button on series header toggles series favorite; heart on each episode toggles episode favorite
-- Navigation: back button returns to previous category or Series tab; Escape/Backspace keyboard shortcuts
-- Mobile refinements: poster size, layout, spacing
-
-## Favorites System Implementation (2026-04-25)
-### FavoritesStore (Zustand)
-- `loadFavorites(sourceId)` — loads all favorites for a playlist from IndexedDB
-- `toggleFavorite(itemType, itemId, sourceId)` — adds or removes a favorite
-- `isFavorite(itemType, itemId)` — checks if item is favorited
-- `getFavoritesByType(itemType)` — returns all favorites of a given type
-- `clearFavorites()` — clears all favorites
-
-### IndexedDB Schema (Dexie v4)
-- `favorites` table: `id` (string, primary key), `itemType` ('channel' | 'movie' | 'series' | 'episode'), `itemId` (string), `sourceId` (string), `addedAt` (number)
-- Composite type-prefixed IDs prevent collisions: `channel:`, `movie:`, `series:`, `episode:`
-- Favorites loaded in App.tsx on mount and when activeSourceId changes
-
-### Heart Buttons Everywhere
-- **ChannelCard** (inline in ChannelCategories.tsx and src/components/live/ChannelCard.tsx): heart with stopPropagation
-- **MovieCard** (src/components/movies/MovieCard.tsx): heart on top-right
-- **SeriesCard** (src/components/series/SeriesCard.tsx): heart on top-right
-- **MovieDetail** (src/pages/MovieDetail.tsx): heart next to Play button
-- **SeriesDetail** (src/pages/SeriesDetail.tsx): heart next to Play button
-- **Watch** (src/pages/Watch.tsx): heart in player control bar
-- **EpisodeList** (src/components/series/EpisodeList.tsx): heart on each episode row
-
-### Favorites Category in Sidebar
-- Appears in Channels/Movies/Series tabs when items are favorited
-- Shows count of favorited items for that tab
-- Clicking filters grid to show only favorited items
-- Uses Dexie `.where('id').anyOf(favoriteIds).toArray()` for efficient queries
-
-## Recent Bug Fixes (2026-04-25)
-### Bug 1 — Channel Favorites Missing
-**Problem**: Channel cards in Channels tab had no heart button (unlike Movies/Series).
-
-**Solution**: Added heart button to inline `ChannelCard` component in `src/pages/ChannelCategories.tsx`:
-- Imported `Heart` from lucide-react and `useFavoritesStore`
-- Added heart button in top-right with `bg-black/50 hover:bg-black/70` background
-- Used `e.stopPropagation()` to prevent channel play on favorite click
-- Filled red (`text-red-500 fill-red-500`) when favorited, outlined white when not
-- Favorites category already existed in sidebar and shows favorited channels
-
-**Files changed**: `src/pages/ChannelCategories.tsx` (added imports, updated ChannelCard component)
-
-**Console logs added**: `[ChannelFavorite] toggle {channelId} {channelName}`
-
-### Bug 2 — Series "Not Found" Flash
-**Problem**: Clicking a series showed "Series not found" briefly, then the series appeared. `loading` wasn't reset on navigation, and `series === undefined` was treated as "not found".
-
-**Solution** (three changes in `src/pages/SeriesDetail.tsx`):
-
-1. **Reset loading on seriesId change** (lines 65-69): Added `useEffect` that sets `loading=true` and clears `error`/`seriesInfo` when `seriesId` changes. Replaced old `useEffect` that only set `loading=false` when series resolved.
-
-2. **Treat `undefined` as loading** (line 244): Changed guard from `if (loading)` to `if (series === undefined || loading)`. Now `useLiveQuery`'s initial `undefined` state shows spinner, not "not found" error.
-
-3. **Null-safe seriesInfo access** (lines 284-296): Changed `seriesInfo.info` → `seriesInfo?.info` and all `info.*` → `info?.*`. Prevents crash if `seriesInfo` hasn't loaded yet when component renders early.
-
-4. **Added debug console logs**:
-   - `[SeriesDetail] params {seriesId}` — logs route parameter
-   - `[SeriesDetail] loading {bool} seriesIsUndefined {bool} series {...}` — logs loading state, undefined check, and series object
-
-**Result**: Correct render order: loading → spinner; loaded and no series → "not found"; loaded and series exists → detail page. No more flash.
-
-**Files changed**: `src/pages/SeriesDetail.tsx`
-
-## HLS Mode Feature Removed (2026-04-26)
-The experimental HLS mode (FFmpeg transcoding backend) was too slow (full movie processing required before playback, causing 15+ minute waits) and caused 404/500/infinite loading errors. It has been fully removed.
-
-### What was removed
-- FFmpeg background jobs, sendFile function, /api/hls* routes from vite.config.ts
-- All /api/hls* routes now return `410 {"error": "HLS mode disabled"}`
-- Audio/Subtitle Control Bar from Watch page (Volume2/Subtitles dropdowns, Open External, Copy URL, Debug Tracks buttons)
-- All track detection state: `audioTracks`, `subtitleTracks`, `showAudioMenu`, `showSubtitleMenu`, `tracksChecked`, `trackAvailabilityMessage`, `externalSubtitleSources`
-- Track selection handlers: `handleAudioTrackSelect`, `handleSubtitleTrackSelect`, `handleToggleSubtitles`
-- Debug functions: `debugTracks`, `debugManifest`, `debugMediaTracksEndpoint`
-- External subtitle loading from Watch page
-- Menu close effects (click outside, Escape key)
-- `.cache/hls` directory deleted
-
-### What was kept
-- mpegts.js player for live TV (.ts streams)
-- Hls.js player for .m3u8 streams (HLS initialization, console.log of track counts — no state updates)
-- All playback functions: `playEpisode`, `playMovie`, `playChannel`, `buildStreamUrl`, `setupVideoSource`
-- Heart favorite button and `handleFavoriteToggle`
-- Channel/movie/episode sidebar
-
-### Backend route status
-- `/api/hls/start`, `/api/hls/poll`, `/api/hls/stop`, `/api/hls/status`, `/api/hls/clear-cache`, `/api/hls/progress` — all return `410 {"error": "HLS mode disabled"}`
-- `/api/debug-media-tracks` — still available in dev mode (ffprobe endpoint for inspecting media files)
-- Embedded track message changed from "HLS mode is used" to: `Embedded tracks may exist, but this browser player may not expose them. Use external player for full audio/subtitle support.`
+- VPS deployment with production proxy
