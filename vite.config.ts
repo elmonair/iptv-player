@@ -1,7 +1,8 @@
 import { execFile } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import type { ServerResponse } from 'node:http'
+import type { IncomingMessage, ServerResponse } from 'node:http'
 import { delimiter, join } from 'node:path'
+import { Readable } from 'node:stream'
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -108,6 +109,111 @@ function sendJson(res: ServerResponse, statusCode: number, body: unknown) {
   res.statusCode = statusCode
   res.setHeader('Content-Type', 'application/json')
   res.end(JSON.stringify(body))
+}
+
+async function proxyLiveStream(req: IncomingMessage, res: ServerResponse, targetUrl: string) {
+  const upstreamUrl = new URL(targetUrl)
+  const referer = `${upstreamUrl.protocol}//${upstreamUrl.host}`
+  const requestHeaders = new Headers({
+    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36',
+    'Referer': referer,
+    'Connection': 'keep-alive',
+  })
+  const rangeHeader = typeof req.headers.range === 'string' ? req.headers.range : null
+
+  if (rangeHeader) {
+    requestHeaders.set('range', rangeHeader)
+  }
+
+  // Connection timeout ONLY - aborts if upstream doesn't respond in 10s.
+  // Once headers arrive, we do NOT timeout the streaming body.
+  const controller = new AbortController()
+  const connectTimeoutId = setTimeout(
+    () => controller.abort(new Error('Connection timeout after 10 seconds')),
+    10000,
+  )
+
+  let upstream: Response
+  try {
+    console.log('[LIVE PROXY] Requesting upstream URL:', targetUrl)
+    upstream = await fetch(targetUrl, {
+      method: 'GET',
+      headers: requestHeaders,
+      redirect: 'follow',
+      signal: controller.signal,
+    })
+    // CRITICAL: Clear timeout the moment headers arrive.
+    clearTimeout(connectTimeoutId)
+  } catch (err) {
+    clearTimeout(connectTimeoutId)
+    console.error('[LIVE PROXY] Upstream request failed:', {
+      url: targetUrl,
+      reason: err instanceof Error ? err.message : String(err),
+    })
+    if (!res.headersSent) {
+      sendJson(res, 503, {
+        error: 'Live stream proxy connection failed',
+        details: err instanceof Error ? err.message : String(err),
+      })
+    }
+    return
+  }
+
+  if (!upstream.ok || !upstream.body) {
+    const errorText = await upstream.text().catch(() => '')
+    console.error('[LIVE PROXY] Upstream returned bad response:', {
+      url: targetUrl,
+      status: upstream.status,
+      details: errorText.slice(0, 300),
+    })
+    sendJson(res, 503, {
+      error: 'Live stream proxy request failed',
+      status: upstream.status,
+      details: errorText.slice(0, 300),
+    })
+    return
+  }
+
+  res.statusCode = upstream.status
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Cache-Control', 'no-cache')
+
+  // Pass through upstream Content-Type as-is. Live streams are MPEG-TS.
+  // Do NOT override this header.
+  const upstreamContentType = upstream.headers.get('content-type') || 'video/mp2t'
+  res.setHeader('Content-Type', upstreamContentType)
+
+  const passthroughHeaders = [
+    'accept-ranges',
+    'content-length',
+    'content-range',
+    'etag',
+    'last-modified',
+  ]
+
+  for (const headerName of passthroughHeaders) {
+    const headerValue = upstream.headers.get(headerName)
+    if (headerValue) {
+      res.setHeader(headerName, headerValue)
+    }
+  }
+
+  // Pipe stream directly. Handle client disconnect to clean up upstream connection.
+  const stream = Readable.fromWeb(upstream.body as globalThis.ReadableStream<Uint8Array>)
+
+  req.on('close', () => {
+    stream.destroy()
+  })
+
+  stream.on('error', (err) => {
+    console.error('[LIVE PROXY] Stream error:', err.message)
+    if (!res.headersSent) {
+      res.statusCode = 503
+    }
+    res.end()
+  })
+
+  stream.pipe(res)
 }
 
 function normalizeMediaUrl(url: string): { normalizedUrl: string; valid: boolean; error?: string } {
@@ -244,6 +350,42 @@ export default defineConfig({
 
           if (url.startsWith('/api/hls')) {
             sendJson(res, 410, { error: 'HLS mode disabled' })
+            return
+          }
+
+          if (url.startsWith('/proxy/live/')) {
+            const requestUrl = new URL(url, 'http://localhost')
+            const pathMatch = requestUrl.pathname.match(/^\/proxy\/live\/([^/]+)\/(\d+)$/)
+            const serverUrl = requestUrl.searchParams.get('serverUrl')
+            const username = requestUrl.searchParams.get('username')
+            const password = requestUrl.searchParams.get('password')
+
+            if (!pathMatch || !serverUrl || !username || !password) {
+              sendJson(res, 400, { error: 'Missing live proxy parameters' })
+              return
+            }
+
+            const [, _playlistId, streamId] = pathMatch
+            const targetUrl = `${serverUrl.replace(/\/$/, '')}/live/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${encodeURIComponent(streamId)}.ts`
+            console.log('[LIVE PROXY] Built upstream URL:', {
+              sourceId: _playlistId,
+              streamId,
+              targetUrl,
+            })
+
+            try {
+              await proxyLiveStream(req, res, targetUrl)
+            } catch (err) {
+              console.error('[LIVE PROXY] Failed:', {
+                targetUrl,
+                reason: err instanceof Error ? err.message : String(err),
+              })
+              sendJson(res, 503, {
+                error: 'Live stream proxy failed',
+                upstreamUrl: targetUrl,
+                details: err instanceof Error ? err.message : String(err),
+              })
+            }
             return
           }
 

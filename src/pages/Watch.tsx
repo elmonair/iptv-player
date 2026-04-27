@@ -39,6 +39,24 @@ function getItemName(item: WatchableItem): string {
   return (item.data as ChannelRecord | MovieRecord).name ?? ''
 }
 
+function getLiveStreamId(channel: Partial<ChannelRecord> & { id?: string }): string | null {
+  if (channel.streamId) return String(channel.streamId)
+
+  const id = String(channel.id || '')
+  const match = id.match(/live-(\d+)$/)
+  return match ? match[1] : null
+}
+
+function buildLiveProxyUrl(source: { id: string; serverUrl: string; username: string; password: string }, streamId: string): string {
+  const params = new URLSearchParams({
+    serverUrl: source.serverUrl,
+    username: source.username,
+    password: source.password,
+  })
+
+  return `/proxy/live/${encodeURIComponent(source.id)}/${encodeURIComponent(streamId)}?${params.toString()}`
+}
+
 export default function Watch() {
   const { id: routeId, episodeId } = useParams<{ id: string; episodeId: string }>()
   const navigate = useNavigate()
@@ -46,13 +64,18 @@ export default function Watch() {
   const videoRef = useRef<HTMLVideoElement>(null)
   const playerRef = useRef<ReturnType<typeof mpegts.createPlayer> | null>(null)
   const hlsRef = useRef<Hls | null>(null)
+  const currentStreamUrlRef = useRef<string>('')
   const allItemsRef = useRef<WatchableItem[]>([])
   const categoryItemsRef = useRef<WatchableItem[]>([])
   const categoryIndexRef = useRef<number>(-1)
   const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const autoAdvanceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const autoAdvanceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const channelErrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activeItemRef = useRef<HTMLButtonElement>(null)
   const hasResumedRef = useRef(false)
+  const handleChannelUnavailableRef = useRef<(message: string) => void>(() => {})
 
   const pathname = location.pathname
   const routeType: 'live' | 'movie' | 'episode' | null =
@@ -72,6 +95,9 @@ export default function Watch() {
   const [currentItemId, setCurrentItemId] = useState<string>('')
   const [currentType, setCurrentType] = useState<'channel' | 'movie' | 'episode'>('channel')
   const [activeSource, setActiveSource] = useState<Awaited<ReturnType<typeof getActiveSource>> | null>(null)
+  const [lastVideoErrorCode, setLastVideoErrorCode] = useState<number | null>(null)
+  const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
+  const [autoAdvanceSeconds, setAutoAdvanceSeconds] = useState<number | null>(null)
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
@@ -94,6 +120,25 @@ export default function Watch() {
     console.log('[Watch] Toggled favorite:', itemType, currentItemId)
   }
 
+  const clearAutoAdvanceTimer = useCallback(() => {
+    if (autoAdvanceTimeoutRef.current) {
+      clearTimeout(autoAdvanceTimeoutRef.current)
+      autoAdvanceTimeoutRef.current = null
+    }
+    if (autoAdvanceIntervalRef.current) {
+      clearInterval(autoAdvanceIntervalRef.current)
+      autoAdvanceIntervalRef.current = null
+    }
+    setAutoAdvanceSeconds(null)
+  }, [])
+
+  const clearChannelErrorTimeout = useCallback(() => {
+    if (channelErrorTimeoutRef.current) {
+      clearTimeout(channelErrorTimeoutRef.current)
+      channelErrorTimeoutRef.current = null
+    }
+  }, [])
+
   const destroyPlayer = useCallback(() => {
     const player = playerRef.current
     if (player) {
@@ -111,6 +156,9 @@ export default function Watch() {
     if (videoRef.current) {
       videoRef.current.src = ''
     }
+    // Clear streamUrl state when destroying player to prevent error logging
+    currentStreamUrlRef.current = ''
+    setCurrentStreamUrl('')
     if (statsIntervalRef.current) {
       clearInterval(statsIntervalRef.current)
       statsIntervalRef.current = null
@@ -119,7 +167,20 @@ export default function Watch() {
       clearInterval(progressIntervalRef.current)
       progressIntervalRef.current = null
     }
+    if (autoAdvanceTimeoutRef.current) {
+      clearTimeout(autoAdvanceTimeoutRef.current)
+      autoAdvanceTimeoutRef.current = null
+    }
+    if (autoAdvanceIntervalRef.current) {
+      clearInterval(autoAdvanceIntervalRef.current)
+      autoAdvanceIntervalRef.current = null
+    }
+    setAutoAdvanceSeconds(null)
     setVideoInfo(null)
+    if (channelErrorTimeoutRef.current) {
+      clearTimeout(channelErrorTimeoutRef.current)
+      channelErrorTimeoutRef.current = null
+    }
   }, [])
 
   const startProgressTracking = useCallback((itemType: 'channel' | 'movie' | 'episode', itemId: string) => {
@@ -127,12 +188,12 @@ export default function Watch() {
       clearInterval(progressIntervalRef.current)
     }
     if (!activeSource) return
+    if (itemType === 'channel') return
 
     const saveProgress = () => {
       if (!videoRef.current || !activeSource) return
       const currentTime = videoRef.current.currentTime
       const duration = videoRef.current.duration
-      console.log('[Watch] Saving progress:', { itemType, itemId, sourceId: activeSource.id, currentTime, duration })
       updateWatchProgress(itemType, itemId, activeSource.id, currentTime, duration)
     }
 
@@ -149,7 +210,6 @@ export default function Watch() {
 
     if (saved > 5 && Number.isFinite(duration) && saved < duration * 0.9) {
       videoEl.currentTime = saved
-      console.log('[Watch] Resumed once from position:', saved)
     }
 
     hasResumedRef.current = true
@@ -164,13 +224,10 @@ export default function Watch() {
 
   const handlePlayClick = async () => {
     if (!videoRef.current) {
-      console.error('[Watch] handlePlayClick: videoRef.current is null')
       return
     }
-    console.log('[Watch] handlePlayClick: Starting play, video src:', videoRef.current.src)
     try {
       await videoRef.current.play()
-      console.log('[Watch] User-initiated play succeeded')
     } catch (err) {
       console.error('[Watch] User-initiated play failed:', err)
       setStatus('error')
@@ -181,24 +238,13 @@ export default function Watch() {
   const handleUpBack = useCallback(() => {
     const navState = location.state as { from?: string; tab?: string; categoryId?: string; scrollY?: number; seriesId?: string } | null
 
-    console.log('[Watch Back]', {
-      locationState: location.state,
-      itemType: currentType,
-      itemId: currentItemId,
-      from: navState?.from
-    })
-
-    // First priority: use the 'from' state if it exists
     if (navState?.from) {
-      console.log('[Watch Back] Using from state:', navState.from)
       navigate(navState.from, { replace: true })
       return
     }
 
-    // Second priority: handle specific item types
     if (currentType === 'movie') {
       navigate('/live?tab=movies', { replace: true })
-      console.log('[Watch Back] Fallback to /live?tab=movies')
       return
     }
 
@@ -206,15 +252,12 @@ export default function Watch() {
       const seriesId = navState?.seriesId
       if (seriesId) {
         navigate(`/series/${encodeURIComponent(seriesId)}`, { replace: true })
-        console.log('[Watch Back] Navigate to series detail:', seriesId)
       } else {
         navigate('/live?tab=series', { replace: true })
-        console.log('[Watch Back] Fallback to /live?tab=series')
       }
       return
     }
 
-    // Third priority: use browseStore for channels
     if (currentType === 'channel') {
       const ctx = useBrowseStore.getState().exitPlayer()
       if (ctx && ctx.section === 'live') {
@@ -225,12 +268,10 @@ export default function Watch() {
           params.set('category', categoryId)
         }
         navigate(`/live?${params.toString()}`, { replace: true })
-        console.log('[Watch Back] Using browseStore to navigate:', `/live?${params.toString()}`)
         return
       }
 
       navigate('/live?tab=channels', { replace: true })
-      console.log('[Watch Back] Default fallback to /live?tab=channels')
       return
     }
 
@@ -241,14 +282,25 @@ export default function Watch() {
   const buildStreamUrl = (source: { serverUrl: string; username: string; password: string }, item: WatchableItem): string => {
     if (!item) return ''
     if (item.type === 'channel') {
-      return `${source.serverUrl}/live/${source.username}/${source.password}/${(item.data as { streamId: string }).streamId}.ts`
+      const channel = item.data as ChannelRecord
+      const streamId = getLiveStreamId(channel)
+      if (!streamId) return ''
+
+      const directUrl = `${source.serverUrl}/live/${source.username}/${source.password}/${streamId}.ts`
+
+      if (import.meta.env.DEV) {
+        return buildLiveProxyUrl(source as { id: string; serverUrl: string; username: string; password: string }, streamId)
+      }
+
+      return directUrl
     } else if (item.type === 'movie') {
       const movie = item.data as MovieRecord
       const ext = movie.containerExtension || 'mp4'
       return `${source.serverUrl}/movie/${source.username}/${source.password}/${movie.streamId}.${ext}`
     } else if (item.type === 'episode') {
       const episode = item.data as EpisodeInfo
-      return `${source.serverUrl}/series/${source.username}/${source.password}/${episode.streamId}.${episode.containerExtension}`
+      const ext = episode.containerExtension || 'mkv'
+      return `${source.serverUrl}/series/${source.username}/${source.password}/${episode.streamId}.${ext}`
     }
     return ''
   }
@@ -263,7 +315,6 @@ export default function Watch() {
     const isHls = streamUrl.includes('.m3u8') || streamUrl.includes('m3u8')
 
     if (isHls && Hls.isSupported()) {
-      console.log('[Watch] Using HLS.js for:', streamUrl.replace(/\/\/[^@]+@/, '//[USER]@'))
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
@@ -274,14 +325,13 @@ export default function Watch() {
       hls.attachMedia(videoEl)
 
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
-        console.log('[HLS] Manifest parsed, audio tracks:', hls.audioTracks?.length, 'subtitle tracks:', hls.subtitleTracks?.length)
+        // tracks available via hls.audioTracks / hls.subtitleTracks if needed
       })
 
       hls.on(Hls.Events.ERROR, (_event, data) => {
         console.error('[HLS] Error:', data.type, data.details, data.fatal)
         if (data.fatal) {
           if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
-            console.log('[HLS] Network error, trying to recover')
             hls.startLoad()
           } else {
             setStatus('error')
@@ -294,7 +344,6 @@ export default function Watch() {
     }
 
     // Not HLS or HLS not supported — use native video
-    console.log('[Watch] Using native video for:', isHls ? 'Safari HLS' : 'non-HLS stream')
     videoEl.src = streamUrl
     return false
   }, [])
@@ -315,6 +364,8 @@ export default function Watch() {
     setCurrentItemId(`episode_${episodeInfo.streamId}`)
     setCurrentType('episode')
     setStatus('loading')
+    setErrorMsg(null)
+    setLastVideoErrorCode(null)
     setVideoInfo(null)
     setCategoryName(episodeInfo.seriesName)
 
@@ -343,8 +394,8 @@ export default function Watch() {
     categoryIndexRef.current = currentIdx >= 0 ? currentIdx : 0
 
     const streamUrl = buildStreamUrl(source, episodeItem)
-    const safeUrl = streamUrl.replace(source.username, '[USER]').replace(source.password, '[PASS]')
-    console.log('[Watch] Episode stream URL:', safeUrl)
+    currentStreamUrlRef.current = streamUrl
+    setCurrentStreamUrl(streamUrl)
 
     const videoEl = videoRef.current
     setupVideoSource(videoEl, streamUrl)
@@ -374,6 +425,9 @@ export default function Watch() {
       startProgressTracking('episode', episodeId)
     }
     videoEl.onerror = () => {
+      if (!currentStreamUrlRef.current) {
+        return
+      }
       console.error('[Watch] Episode video error:', videoEl.error)
       setStatus('error')
       const errCode = videoEl.error?.code ?? 0
@@ -383,7 +437,7 @@ export default function Watch() {
         setErrorMsg('Unable to play episode. Copy URL for VLC.')
       }
     }
-    videoEl.onstalled = () => console.log('[Watch] Episode video stalled')
+    videoEl.onstalled = null
 
     try {
       await videoEl.play()
@@ -402,20 +456,24 @@ export default function Watch() {
     if (!targetItemId || !videoRef.current) return
 
     const source = activeSource
-    if (!source || source.type !== 'xtream') return
+    if (!source || source.type !== 'xtream') {
+      console.warn('[Watch] zapTo called without valid Xtream source')
+      return
+    }
 
+    clearChannelErrorTimeout()
+    clearAutoAdvanceTimer()
     destroyPlayer()
 
     const decodedId = targetItemId.includes('%') ? decodeURIComponent(targetItemId) : targetItemId
 
+    // Set currentItemId immediately to prevent empty state during DB query
+    // This ensures video error handlers always have a valid ID to log
+    setCurrentItemId(decodedId)
+
     let item: WatchableItem = null
     try {
       const channel = await db.channels.where('id').equals(decodedId).first()
-      console.log('[Watch Resolve Live]', {
-        routeId: targetItemId,
-        decodedId,
-        queryResult: channel ? { found: true, name: channel.name, streamId: channel.streamId } : { found: false }
-      })
       if (channel) {
         item = { type: 'channel', data: channel }
       } else {
@@ -438,18 +496,13 @@ export default function Watch() {
       return
     }
 
-    console.log('[Watch] Zap to:', {
-      type: item.type,
-      name: getItemName(item),
-      streamId: (item.data as any).streamId,
-      id: item.data.id,
-      categoryId: item.data.categoryId
-    })
+    console.log('[Watch] Zap to:', getItemName(item))
     setItemName(getItemName(item))
     setCurrentItemId(item.data.id)
     setCurrentType(item.type)
     setStatus('loading')
     setErrorMsg(null)
+    setLastVideoErrorCode(null)
     setVideoInfo(null)
 
     const allItems = allItemsRef.current
@@ -470,35 +523,79 @@ export default function Watch() {
     }
 
     const streamUrl = buildStreamUrl(source, item)
-    const safeUrl = streamUrl.replace(source.username, '[USER]').replace(source.password, '[PASS]')
-    console.log('[Watch] Stream URL:', safeUrl)
-    console.log('[Watch Current Channel]', {
-      id: item.data.id,
-      name: getItemName(item),
-      streamId: (item.data as any).streamId,
-      categoryId: item.data.categoryId,
-      streamUrl: safeUrl
-    })
+
+    if (!streamUrl) {
+      console.warn('[Watch] Skipping video src set - empty streamUrl', { targetItemId, decodedId, itemId: item.data.id })
+      setStatus('error')
+      setErrorMsg('Failed to build stream URL')
+      return
+    }
+
+    // Update streamUrl state after building and validating
+    currentStreamUrlRef.current = streamUrl
+    setCurrentStreamUrl(streamUrl)
 
     const videoEl = videoRef.current
 
     if (item.type === 'channel') {
       if (mpegts.isSupported()) {
-        const player = mpegts.createPlayer({
-          type: 'mpegts',
-          url: streamUrl,
-          isLive: true,
-        })
+        const player = mpegts.createPlayer(
+          {
+            type: 'mpegts',
+            url: streamUrl,
+            isLive: true,
+          },
+          {
+            enableWorker: false,
+            enableStashBuffer: true,
+            stashInitialSize: 1024 * 1024,
+            autoCleanupSourceBuffer: true,
+            autoCleanupMaxBackwardDuration: 60,
+            autoCleanupMinBackwardDuration: 30,
+            lazyLoad: false,
+            seekType: 'range',
+            liveBufferLatencyChasing: false,
+            liveSync: false,
+            fixAudioTimestampGap: true,
+          }
+        )
         playerRef.current = player
+        let hasRetried = false
 
         player.on(mpegts.Events.ERROR, (_type: string, _detail: string, info: { message?: string }) => {
-          console.error('[Watch] mpegts ERROR:', _type, _detail, info)
-          setStatus('error')
-          setErrorMsg(info?.message ?? 'Player error occurred')
+          if (!currentStreamUrlRef.current) return
+
+          const v = videoRef.current
+          if (v && v.readyState >= 2 && !v.paused && v.currentTime > 0) return
+
+          if (_type === mpegts.ErrorTypes.NETWORK_ERROR && !hasRetried) {
+            hasRetried = true
+            setTimeout(() => {
+              try {
+                player.unload()
+                player.load()
+                void player.play()
+              } catch {
+                handleChannelUnavailableRef.current('Channel temporarily unavailable')
+              }
+            }, 2000)
+            return
+          }
+          const message = info?.message ?? 'Player error occurred'
+          const lowerMessage = message.toLowerCase()
+          if (lowerMessage.includes('502') || lowerMessage.includes('503') || lowerMessage.includes('bad gateway')) {
+            handleChannelUnavailableRef.current('Channel temporarily unavailable')
+          } else if (lowerMessage.includes('timeout') || lowerMessage.includes('not responding')) {
+            handleChannelUnavailableRef.current('Channel not responding')
+          } else if (lowerMessage.includes('failed to fetch')) {
+            handleChannelUnavailableRef.current('Channel temporarily unavailable')
+          } else {
+            handleChannelUnavailableRef.current(message)
+          }
         })
 
         player.on(mpegts.Events.LOADING_COMPLETE, () => {
-          console.log('[Watch] mpegts LOADING_COMPLETE')
+          // live stream ended (rare for true live)
         })
 
         player.on(mpegts.Events.MEDIA_INFO, (info: { width?: number; height?: number; frame_rate?: number }) => {
@@ -519,9 +616,10 @@ export default function Watch() {
         })
 
         player.attachMediaElement(videoEl)
+
         player.load()
 
-        videoEl.oncanplay = () => {
+        videoEl.oncanplay = async () => {
           if (videoEl.videoWidth && videoEl.videoHeight) {
             setVideoInfo((prev) => ({
               width: videoEl.videoWidth,
@@ -529,17 +627,27 @@ export default function Watch() {
               fps: prev?.fps ?? 0,
             }))
           }
+
+          try {
+            await videoEl.play()
+            clearChannelErrorTimeout()
+            clearAutoAdvanceTimer()
+            setStatus('playing')
+            setLastChannelId(item.data.id)
+          } catch (err) {
+            if (err instanceof Error && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
+              setStatus('ready-click-to-play')
+            } else {
+              handleChannelUnavailableRef.current(err instanceof Error ? err.message : String(err))
+            }
+          }
         }
-        videoEl.onloadedmetadata = () => {
-          const channelId = item.data.id
-          const history = getWatchHistory()
-          const savedProgress = history.find(h => h.itemType === 'channel' && h.itemId === channelId)
-          handleLoadedMetadata(savedProgress)
-        }
+        videoEl.onloadedmetadata = null
         videoEl.onplaying = () => {
+          clearChannelErrorTimeout()
+          clearAutoAdvanceTimer()
           setStatus('playing')
           setLastChannelId(item.data.id)
-          startProgressTracking('channel', item.data.id)
           statsIntervalRef.current = setInterval(() => {
             if (videoEl.videoWidth && videoEl.videoHeight) {
               setVideoInfo((prev) => {
@@ -549,35 +657,19 @@ export default function Watch() {
             }
           }, 1000)
         }
-        videoEl.onstalled = () => console.log('[Watch] video stalled event')
+        videoEl.onstalled = null
         videoEl.onerror = () => {
-          console.error('[Watch] video error:', {
-            error: videoEl.error,
-            errorCode: videoEl.error?.code,
-            errorMessage: videoEl.error?.message,
-            streamUrl,
-            currentItemId,
-            itemName
-          })
-          setStatus('error')
+          if (!currentStreamUrlRef.current) return
+
+          const v = videoRef.current
+          if (v && v.readyState >= 2 && !v.paused && v.currentTime > 0) return
+
+          setLastVideoErrorCode(videoEl.error?.code ?? null)
           const errCode = videoEl.error?.code ?? 0
           if (errCode === 4) {
-            setErrorMsg('Video format not supported. Try copying URL for VLC.')
+            handleChannelUnavailableRef.current('Format not supported')
           } else {
-            setErrorMsg('Video element error')
-          }
-        }
-
-        try {
-          await videoEl.play()
-          setStatus('playing')
-          setLastChannelId(item.data.id)
-        } catch (err) {
-          if (err instanceof Error && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
-            setStatus('ready-click-to-play')
-          } else {
-            setStatus('error')
-            setErrorMsg(err instanceof Error ? err.message : String(err))
+            handleChannelUnavailableRef.current('Channel temporarily unavailable')
           }
         }
       } else {
@@ -590,10 +682,6 @@ export default function Watch() {
       const movieId = (item.data as MovieRecord).id
       const history = getWatchHistory()
       const savedProgress = history.find(h => h.itemType === 'movie' && h.itemId === movieId)
-
-      if (savedProgress && savedProgress.position > 0) {
-        console.log('[Watch] Found saved progress for movie:', savedProgress.position)
-      }
 
       videoEl.onloadedmetadata = () => {
         handleLoadedMetadata(savedProgress)
@@ -612,7 +700,8 @@ export default function Watch() {
         startProgressTracking('movie', movieId)
       }
       videoEl.onerror = () => {
-        console.error('[Watch] Movie video error:', videoEl.error)
+        if (!currentStreamUrl) return
+        console.error('[Watch] Movie video error:', videoEl.error?.code, videoEl.error?.message)
         setStatus('error')
         const errCode = videoEl.error?.code ?? 0
         if (errCode === 4) {
@@ -621,7 +710,7 @@ export default function Watch() {
           setErrorMsg('Unable to play movie. Copy URL for VLC.')
         }
       }
-      videoEl.onstalled = () => console.log('[Watch] Movie video stalled')
+      videoEl.onstalled = null
 
       try {
         await videoEl.play()
@@ -635,7 +724,7 @@ export default function Watch() {
         }
       }
     }
-  }, [destroyPlayer, getWatchHistory, startProgressTracking, handleLoadedMetadata, setLastChannelId])
+  }, [destroyPlayer, getWatchHistory, startProgressTracking, handleLoadedMetadata, setLastChannelId, clearChannelErrorTimeout, clearAutoAdvanceTimer])
 
   const handleFullscreenToggle = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -646,6 +735,7 @@ export default function Watch() {
   }, [])
 
   const handlePrevChannel = useCallback(() => {
+    clearAutoAdvanceTimer()
     const items = categoryItemsRef.current
     if (items.length === 0) return
 
@@ -656,11 +746,11 @@ export default function Watch() {
     const nextItem = items[nextIndex]
     if (!nextItem) return
     categoryIndexRef.current = nextIndex
-    console.log('[Watch] Prev item:', { nextIndex, item: getItemName(nextItem) })
     zapTo(nextItem.data.id)
-  }, [zapTo])
+  }, [clearAutoAdvanceTimer, zapTo])
 
   const handleNextChannel = useCallback(() => {
+    clearAutoAdvanceTimer()
     const items = categoryItemsRef.current
     if (items.length === 0) return
 
@@ -671,9 +761,39 @@ export default function Watch() {
     const nextItem = items[nextIndex]
     if (!nextItem) return
     categoryIndexRef.current = nextIndex
-    console.log('[Watch] Next item:', { nextIndex, item: getItemName(nextItem) })
     zapTo(nextItem.data.id)
-  }, [zapTo])
+  }, [clearAutoAdvanceTimer, zapTo])
+
+  const startAutoAdvanceTimer = useCallback(() => {
+    clearAutoAdvanceTimer()
+    setAutoAdvanceSeconds(5)
+
+    autoAdvanceIntervalRef.current = setInterval(() => {
+      setAutoAdvanceSeconds((prev) => {
+        if (prev === null) return null
+        return prev > 0 ? prev - 1 : 0
+      })
+    }, 1000)
+
+    autoAdvanceTimeoutRef.current = setTimeout(() => {
+      handleNextChannel()
+    }, 5000)
+  }, [clearAutoAdvanceTimer, handleNextChannel])
+
+  const handleChannelUnavailable = useCallback((message: string) => {
+    if (channelErrorTimeoutRef.current) {
+      clearTimeout(channelErrorTimeoutRef.current)
+    }
+
+    channelErrorTimeoutRef.current = setTimeout(() => {
+      if (!currentStreamUrlRef.current) return
+      setStatus('error')
+      setErrorMsg(message)
+      startAutoAdvanceTimer()
+    }, 3000)
+  }, [startAutoAdvanceTimer])
+
+  handleChannelUnavailableRef.current = handleChannelUnavailable
 
   useEffect(() => {
     hasResumedRef.current = false
@@ -706,7 +826,6 @@ export default function Watch() {
         const nextItem = items[nextIndex]
         if (!nextItem) return
         categoryIndexRef.current = nextIndex
-        console.log('[Watch] Quick-zap:', { direction: e.key, nextIndex, item: getItemName(nextItem) })
         zapTo(nextItem.data.id)
       }
     }
@@ -725,9 +844,11 @@ export default function Watch() {
 
   useEffect(() => {
     return () => {
+      clearAutoAdvanceTimer()
+      clearChannelErrorTimeout()
       stopProgressTracking()
     }
-  }, [stopProgressTracking])
+  }, [clearAutoAdvanceTimer, clearChannelErrorTimeout, stopProgressTracking])
 
   // Track detection removed - audio/subtitle UI no longer needed
 
@@ -736,6 +857,9 @@ export default function Watch() {
       activeItemRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }
   }, [currentItemId])
+
+  const isChannelError = status === 'error' && currentType === 'channel'
+  const showMainContent = status !== 'error' || isChannelError
 
   const initRef = useRef<boolean>(false)
 
@@ -747,7 +871,6 @@ export default function Watch() {
 
     const init = async () => {
       if (initRef.current) {
-        console.log('[Watch] Init already in progress, skipping')
         return
       }
       initRef.current = true
@@ -756,13 +879,11 @@ export default function Watch() {
         const source = getActiveSource()
         setActiveSource(source)
         if (!source || source.type !== 'xtream') {
-          console.log('[Watch] No active Xtream source, redirecting')
           navigate('/home')
           return
         }
 
-        console.log('[Watch] Source found:', source.name ?? '')
-        console.log('[Watch] routeId:', routeId, 'routeType:', routeType, 'episodeId:', episodeId)
+        console.log('[Watch] Source:', source.name ?? 'unknown', '| route:', routeType, routeId ?? episodeId)
 
         if (episodeId && location.state) {
           let episodeState: EpisodeInfo = location.state as EpisodeInfo
@@ -792,7 +913,6 @@ export default function Watch() {
             }
           }
 
-          console.log('[Watch] Playing episode:', episodeState.episodeTitle)
           await playEpisode(episodeState)
           initRef.current = false
           return
@@ -803,8 +923,6 @@ export default function Watch() {
           db.movies.where('sourceId').equals(source.id).toArray(),
         ])
 
-        console.log('[Watch] Loaded channels:', channels.length, 'movies:', movies.length)
-
         const channelItems: WatchableItem[] = channels.map((c) => ({ type: 'channel' as const, data: c }))
         const movieItems: WatchableItem[] = movies.map((m) => ({ type: 'movie' as const, data: m }))
 
@@ -814,7 +932,6 @@ export default function Watch() {
         allItemsRef.current = allItems
 
         if (routeId && routeType) {
-          console.log('[Watch] Calling zapTo with routeId:', routeId)
           await zapTo(routeId)
         }
         initRef.current = false
@@ -892,7 +1009,7 @@ export default function Watch() {
       </header>
 
       {/* Error state - dark centered panel */}
-      {status === 'error' && (
+      {status === 'error' && !isChannelError && (
         <div className="flex-1 flex items-center justify-center bg-slate-950">
           <div className="text-center max-w-md px-4">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-slate-800 flex items-center justify-center">
@@ -921,7 +1038,7 @@ export default function Watch() {
       )}
 
       {/* Main Content Area - Full remaining height */}
-      {status !== 'error' && (
+      {showMainContent && (
         <div
           className={`flex-1 flex flex-col lg:flex-row ${currentType === 'movie' ? 'overflow-y-auto lg:overflow-hidden' : 'overflow-hidden'}`}
           style={{ height: 'calc(100dvh - 56px)' }}
@@ -930,14 +1047,95 @@ export default function Watch() {
           <div className={`${currentType === 'movie' ? 'flex-shrink-0 lg:flex-1' : 'flex-1'} flex flex-col overflow-hidden min-h-0`}>
             {/* Video Container - flex-1 to take remaining space */}
             <div className="flex-1 min-h-0 overflow-hidden p-2">
-              <div className="relative w-full h-full flex items-center justify-center bg-black rounded border border-slate-700">
+              <div className="relative w-full h-full flex items-center justify-center bg-black rounded border-slate-700">
                 <video
-                  key={currentItemId}
                   ref={videoRef}
                   controls
                   playsInline
                   className="w-full h-full object-contain"
                 />
+                {isChannelError && (
+                  <div
+                    className="absolute inset-0 z-20 flex flex-col items-center justify-center"
+                    style={{
+                      background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.85) 100%)',
+                      backdropFilter: 'blur(12px)',
+                      WebkitBackdropFilter: 'blur(12px)',
+                      animation: 'channelErrorFadeIn 0.3s ease-out',
+                      fontFamily: "'DM Sans', sans-serif",
+                    }}
+                  >
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="relative w-20 h-20">
+                        <svg className="w-20 h-20 -rotate-90" viewBox="0 0 64 64">
+                          <circle
+                            cx="32" cy="32" r="30"
+                            fill="none"
+                            stroke="rgba(255,255,255,0.1)"
+                            strokeWidth="2"
+                          />
+                          {autoAdvanceSeconds !== null && (
+                            <circle
+                              cx="32" cy="32" r="30"
+                              fill="none"
+                              stroke="rgba(255,255,255,0.6)"
+                              strokeWidth="2"
+                              strokeLinecap="round"
+                              strokeDasharray="188.5"
+                              strokeDashoffset="0"
+                              style={{
+                                animation: 'countdownRing 5s linear forwards',
+                              }}
+                            />
+                          )}
+                        </svg>
+                        {autoAdvanceSeconds !== null && (
+                          <span
+                            className="absolute inset-0 flex items-center justify-center text-white text-2xl font-light"
+                            style={{ fontFamily: "'DM Sans', sans-serif" }}
+                          >
+                            {autoAdvanceSeconds}
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-white/80 text-sm font-light tracking-wide">
+                        Channel unavailable
+                      </p>
+                      {autoAdvanceSeconds !== null && (
+                        <p className="text-white/40 text-xs font-light">
+                          Switching in {autoAdvanceSeconds}s
+                        </p>
+                      )}
+
+                      <div className="flex items-center gap-2 mt-2">
+                        <button
+                          onClick={handlePrevChannel}
+                          className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/15 text-white/70 hover:text-white transition-all focus:outline-none focus:ring-2 focus:ring-white/30"
+                          aria-label="Previous channel"
+                        >
+                          <ChevronLeft className="w-5 h-5" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            clearAutoAdvanceTimer()
+                            zapTo(currentItemId)
+                          }}
+                          className="px-5 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-sm font-light tracking-wide transition-all focus:outline-none focus:ring-2 focus:ring-white/30"
+                        >
+                          Retry
+                        </button>
+                        <button
+                          onClick={handleNextChannel}
+                          className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/15 text-white/70 hover:text-white transition-all focus:outline-none focus:ring-2 focus:ring-white/30"
+                          aria-label="Next channel"
+                        >
+                          <ChevronRight className="w-5 h-5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
                 {status === 'ready-click-to-play' && (
                   <button
                     onClick={handlePlayClick}
@@ -962,16 +1160,18 @@ export default function Watch() {
                     <span className="text-sm">Loading...</span>
                   </div>
                 )}
-                {status === 'ready-click-to-play' && (
-                  <p className="text-slate-400 text-sm">Click play to start</p>
-                )}
-              {status === 'playing' && (
-                <p className="text-green-400 text-sm">Playing</p>
-              )}
-              {status === 'ready-click-to-play' && (
-                <p className="text-slate-400 text-sm">Click play to start</p>
-              )}
-            </div>
+                 {status === 'ready-click-to-play' && (
+                   <p className="text-slate-400 text-sm">Click play to start</p>
+                 )}
+                  {status === 'playing' && (
+                    <p className="text-green-400 text-sm">Playing</p>
+                  )}
+                  {import.meta.env.DEV && currentType === 'channel' && (
+                    <p className="text-[10px] text-slate-500 truncate">
+                      {currentItemId} | {lastVideoErrorCode ?? 'ok'}
+                    </p>
+                  )}
+                </div>
               {status === 'playing' && categoryItems.length > 1 && (
                 <p className="text-slate-500 text-xs hidden sm:block">↑ / ↓ arrows to change</p>
               )}
@@ -995,12 +1195,6 @@ export default function Watch() {
               </div>
               {/* Scrollable List */}
               <div className="flex-1 overflow-y-auto min-h-0">
-                {categoryItems.length > 0 && console.log('[Watch Live Sidebar]', {
-                  categoryId: categoryName,
-                  itemCount: categoryItems.length,
-                  currentItemId,
-                  items: categoryItems.map(i => ({ id: i.data.id, name: getItemName(i), streamId: (i.data as any).streamId }))
-                })}
                 <div className="flex flex-col gap-1 p-2">
                   {categoryItems.map((item) => {
                     if (!item) return null
@@ -1021,13 +1215,6 @@ export default function Watch() {
                             navigate(`/watch/movie/${encodeURIComponent(item.data.id)}`)
                           } else {
                             const ch = item.data as ChannelRecord
-                            console.log('[Watch Sidebar Live Click]', {
-                              clickedId: ch.id,
-                              title: ch.name,
-                              streamId: ch.streamId,
-                              categoryId: ch.categoryId,
-                              url: ch.streamUrl || (ch as any).url
-                            })
                             navigate(`/watch/live/${encodeURIComponent(ch.id)}`)
                           }
                         }}
