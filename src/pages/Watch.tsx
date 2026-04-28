@@ -12,6 +12,7 @@ import { getSeriesInfo } from '../lib/xtream'
 import { getEpgForChannel } from '../lib/epgParser'
 import type { ChannelRecord, MovieRecord } from '../lib/db'
 import type { EpgProgram } from '../lib/epgParser'
+import { getProxiedImageUrl } from '../lib/imageProxy'
 
 type WatchStatus = 'loading' | 'ready-click-to-play' | 'playing' | 'error'
 type EpisodeInfo = {
@@ -57,6 +58,26 @@ function buildLiveProxyUrl(source: { id: string; serverUrl: string; username: st
   })
 
   return `/proxy/live/${encodeURIComponent(source.id)}/${encodeURIComponent(streamId)}?${params.toString()}`
+}
+
+function buildMovieProxyUrl(source: { id: string; serverUrl: string; username: string; password: string }, streamId: string, ext: string): string {
+  const params = new URLSearchParams({
+    serverUrl: source.serverUrl,
+    username: source.username,
+    password: source.password,
+  })
+
+  return `/proxy/movie/${encodeURIComponent(source.id)}/${encodeURIComponent(streamId)}.${ext}?${params.toString()}`
+}
+
+function buildSeriesProxyUrl(source: { id: string; serverUrl: string; username: string; password: string }, streamId: string, ext: string): string {
+  const params = new URLSearchParams({
+    serverUrl: source.serverUrl,
+    username: source.username,
+    password: source.password,
+  })
+
+  return `/proxy/series/${encodeURIComponent(source.id)}/${encodeURIComponent(streamId)}.${ext}?${params.toString()}`
 }
 
 export default function Watch() {
@@ -291,7 +312,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
       const directUrl = `${source.serverUrl}/live/${source.username}/${source.password}/${streamId}.ts`
 
-      if (import.meta.env.DEV) {
+      if (import.meta.env.PROD) {
         return buildLiveProxyUrl(source as { id: string; serverUrl: string; username: string; password: string }, streamId)
       }
 
@@ -299,10 +320,16 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     } else if (item.type === 'movie') {
       const movie = item.data as MovieRecord
       const ext = movie.containerExtension || 'mp4'
+      if (import.meta.env.PROD) {
+        return buildMovieProxyUrl(source as { id: string; serverUrl: string; username: string; password: string }, String(movie.streamId), ext)
+      }
       return `${source.serverUrl}/movie/${source.username}/${source.password}/${movie.streamId}.${ext}`
     } else if (item.type === 'episode') {
       const episode = item.data as EpisodeInfo
       const ext = episode.containerExtension || 'mkv'
+      if (import.meta.env.PROD) {
+        return buildSeriesProxyUrl(source as { id: string; serverUrl: string; username: string; password: string }, String(episode.streamId), ext)
+      }
       return `${source.serverUrl}/series/${source.username}/${source.password}/${episode.streamId}.${ext}`
     }
     return ''
@@ -1245,7 +1272,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                       >
                         {item.type === 'channel' && (item.data as ChannelRecord).logoUrl ? (
                           <img
-                            src={(item.data as ChannelRecord).logoUrl}
+                            src={getProxiedImageUrl((item.data as ChannelRecord).logoUrl)}
                             alt={getItemName(item)}
                             className="w-10 h-10 object-contain rounded bg-slate-800 flex-shrink-0"
                             loading="lazy"
@@ -1256,7 +1283,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                           />
                         ) : item.type === 'movie' && (item.data as MovieRecord).logoUrl ? (
                           <img
-                            src={(item.data as MovieRecord).logoUrl}
+                            src={getProxiedImageUrl((item.data as MovieRecord).logoUrl)}
                             alt={getItemName(item)}
                             className="w-12 h-16 lg:w-10 lg:h-10 object-cover rounded bg-slate-800 flex-shrink-0"
                             loading="lazy"

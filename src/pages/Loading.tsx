@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Loader2 } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
+import { useBrowseStore } from '../stores/browseStore'
 import { syncXtreamPlaylist, type SyncProgress } from '../lib/xtreamSync'
 
 const syncsInFlight = new Set<string>()
@@ -35,6 +36,8 @@ export default function Loading() {
       if (cancelled) return
       setProgress(update)
       if (update.phase === 'complete') {
+        // Invalidate browse cache so fresh data is loaded from Dexie
+        useBrowseStore.getState().invalidateCache()
         setTimeout(() => {
           if (!cancelled) navigate('/home')
         }, 400)

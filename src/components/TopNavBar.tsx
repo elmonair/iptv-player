@@ -4,10 +4,10 @@ import { Film, Search, Calendar, User, ChevronDown, ChevronUp, Shield, Monitor, 
 import { usePlaylistStore } from '../stores/playlistStore'
 
 function getDeviceId(): string {
-  let deviceId = localStorage.getItem('mishaplayer_device_id')
+  let deviceId = localStorage.getItem('M2player_device_id')
   if (!deviceId) {
     deviceId = crypto.randomUUID().split('-')[0].toUpperCase()
-    localStorage.setItem('mishaplayer_device_id', deviceId)
+    localStorage.setItem('M2player_device_id', deviceId)
   }
   return deviceId
 }
@@ -37,7 +37,7 @@ export function TopNavBar() {
         className="flex items-center gap-2 sm:gap-3 hover:opacity-80 transition-opacity focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50 rounded"
       >
         <Film className="text-yellow-500" size={24} />
-        <span className="text-lg sm:text-xl font-bold text-white">MishaPlayer</span>
+        <span className="text-lg sm:text-xl font-bold text-white">M2player</span>
       </button>
 
       {/* Center: Status info - Desktop only */}
@@ -131,7 +131,7 @@ function UserDropdownMenu({ onClose }: UserDropdownMenuProps) {
     { label: 'Subscription Info', onClick: () => { navigate('/subscription'); onClose() } },
     { label: 'My Playlists', onClick: () => { navigate('/playlists'); onClose() } },
     { label: 'Settings', onClick: () => { navigate('/settings'); onClose() } },
-    { label: 'About MishaPlayer', onClick: () => { onClose() } },
+    { label: 'About M2player', onClick: () => { onClose() } },
   ]
 
   return (

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Monitor, Heart } from 'lucide-react'
 import { usePlaylistStore } from '../../stores/playlistStore'
 import { formatRating } from '../../lib/metadata'
+import { getProxiedImageUrl } from '../../lib/imageProxy'
 import { useFavoritesStore } from '../../stores/favoritesStore'
 import type { SeriesRecord } from '../../lib/db'
 
@@ -54,7 +55,7 @@ export default function SeriesCard({ series, onClick }: Props) {
       <div className="aspect-[2/3] bg-slate-900 flex items-center justify-center relative">
         {!imageError && logoUrl ? (
           <img
-            src={logoUrl}
+            src={getProxiedImageUrl(logoUrl)}
             alt={name}
             loading="lazy"
             onError={() => setImageError(true)}

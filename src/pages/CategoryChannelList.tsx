@@ -1,10 +1,15 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Search, MoreVertical } from 'lucide-react'
+import { useRef, useCallback } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../lib/db'
 import { TopNavBar } from '../components/TopNavBar'
+import { getProxiedImageUrl } from '../lib/imageProxy'
+
+const ROW_HEIGHT = 80
 
 export default function CategoryChannelList() {
   const { categoryId } = useParams<{ categoryId: string }>()
@@ -12,6 +17,7 @@ export default function CategoryChannelList() {
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
   const activeSource = getActiveSource()
   const { enterPlayer, saveItems, setFocusedItem, selectCategory } = useBrowseStore()
+  const parentRef = useRef<HTMLDivElement>(null)
 
   const categoryName = useLiveQuery(
     async () => {
@@ -38,7 +44,7 @@ export default function CategoryChannelList() {
     [activeSource, categoryId],
   )
 
-  const handleChannelClick = (channelId: string) => {
+  const handleChannelClick = useCallback((channelId: string) => {
     const catId = categoryId && categoryId !== '__all__' ? decodeURIComponent(categoryId) : null
     const channel = channels?.find((c) => c.id === channelId)
     if (channels) saveItems(channels)
@@ -48,7 +54,14 @@ export default function CategoryChannelList() {
     navigate(`/watch/live/${encodeURIComponent(channelId)}`, {
       state: { returnCategoryId: catId || '__all__', returnChannelId: channel?.id },
     })
-  }
+  }, [categoryId, channels, categoryName, navigate, enterPlayer, saveItems, setFocusedItem, selectCategory])
+
+  const virtualizer = useVirtualizer({
+    count: channels?.length ?? 0,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    overscan: 10,
+  })
 
   return (
     <div className="h-[100dvh] bg-slate-900 flex flex-col overflow-hidden">
@@ -76,8 +89,8 @@ export default function CategoryChannelList() {
         </div>
       </header>
 
-      {/* Channel List */}
-      <div className="flex-1 min-h-0 overflow-y-auto">
+      {/* Channel List - Virtualized */}
+      <div ref={parentRef} className="flex-1 min-h-0 overflow-y-auto">
         {channels === undefined && (
           <div className="flex items-center justify-center h-32">
             <p className="text-slate-400">Loading channels...</p>
@@ -90,41 +103,44 @@ export default function CategoryChannelList() {
           </div>
         )}
 
-        {channels?.map(channel => (
-          <button
-            key={channel.id}
-            onClick={() => handleChannelClick(channel.id)}
-            className="w-full h-20 px-4 flex items-center gap-4 bg-slate-900 hover:bg-slate-800 border-b border-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
-          >
-            {channel.logoUrl ? (
-              <img
-                src={channel.logoUrl}
-                alt={channel.name}
-                className="w-14 h-14 rounded object-contain bg-slate-800 flex-shrink-0"
-                loading="lazy"
-                onError={(e) => {
-                  const target = e.target as HTMLImageElement
-                  target.style.display = 'none'
-                  const fallback = target.nextElementSibling as HTMLDivElement
-                  if (fallback) fallback.style.display = 'flex'
-                }}
-              />
-            ) : null}
-            <div
-              className={`w-14 h-14 rounded bg-slate-700 flex-shrink-0 items-center justify-center ${
-                channel.logoUrl ? 'hidden' : 'flex'
-              }`}
-            >
-              <span className="text-white text-lg font-bold">
-                {channel.name.slice(0, 2).toUpperCase()}
-              </span>
-            </div>
-            <div className="flex-1 text-left min-w-0">
-              <p className="text-base font-medium text-white truncate">{channel.name}</p>
-              <p className="text-sm text-slate-400">EPG not available</p>
-            </div>
-          </button>
-        ))}
+        {channels && channels.length > 0 && (
+          <div style={{ height: virtualizer.getTotalSize(), position: 'relative' }}>
+            {virtualizer.getVirtualItems().map((virtualRow) => {
+              const channel = channels[virtualRow.index]
+              const logoSrc = channel.logoUrl ? getProxiedImageUrl(channel.logoUrl) : null
+              return (
+                <button
+                  key={channel.id}
+                  onClick={() => handleChannelClick(channel.id)}
+                  className="w-full absolute left-0 px-4 flex items-center gap-4 bg-slate-900 hover:bg-slate-800 border-b border-slate-700 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
+                  style={{
+                    height: `${virtualRow.size}px`,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  {logoSrc ? (
+                    <img
+                      src={logoSrc}
+                      alt={channel.name}
+                      className="w-14 h-14 rounded object-contain bg-slate-800 flex-shrink-0"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-14 h-14 rounded bg-slate-700 flex-shrink-0 flex items-center justify-center">
+                      <span className="text-white text-lg font-bold">
+                        {channel.name.slice(0, 2).toUpperCase()}
+                      </span>
+                    </div>
+                  )}
+                  <div className="flex-1 text-left min-w-0">
+                    <p className="text-base font-medium text-white truncate">{channel.name}</p>
+                    <p className="text-sm text-slate-400">EPG not available</p>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
     </div>
   )

@@ -1,7 +1,9 @@
-import { useRef, useState, useEffect } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { db } from '../../lib/db'
+import { useFavoritesStore } from '../../stores/favoritesStore'
+import { usePlaylistStore } from '../../stores/playlistStore'
 import ChannelCard from './ChannelCard'
 import type { ChannelRecord } from '../../lib/db'
 
@@ -15,12 +17,12 @@ const CARD_HEIGHT = 160
 const GAP = 16
 
 function getColumnsForWidth(width: number): number {
-  if (width < 640) return 1      // mobile
-  if (width < 768) return 2      // small tablet
-  if (width < 1024) return 3     // tablet
-  if (width < 1280) return 4     // desktop
-  if (width < 1536) return 4     // large desktop
-  return 5                        // TV
+  if (width < 640) return 1
+  if (width < 768) return 2
+  if (width < 1024) return 3
+  if (width < 1280) return 4
+  if (width < 1536) return 4
+  return 5
 }
 
 function getCardWidth(containerWidth: number, columns: number): number {
@@ -32,6 +34,30 @@ export default function ChannelGrid({ sourceId, selectedCategoryId, onChannelCli
   const containerRef = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(800)
   const [columns, setColumns] = useState(3)
+  const toggleFavorite = useFavoritesStore((state) => state.toggleFavorite)
+  const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
+
+  const activeSource = getActiveSource()
+
+  // Get favorite IDs as a Set for O(1) lookup
+  const favoriteIds = useLiveQuery(
+    async () => {
+      if (!sourceId) return new Set<string>()
+      const favorites = await db.favorites
+        .where('sourceId')
+        .equals(sourceId)
+        .and(f => f.itemType === 'channel')
+        .toArray()
+      return new Set(favorites.map(f => f.itemId))
+    },
+    [sourceId],
+  )
+
+  const handleToggleFavorite = useCallback((channelId: string) => {
+    if (activeSource) {
+      toggleFavorite('channel', channelId, activeSource.id)
+    }
+  }, [activeSource, toggleFavorite])
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -92,6 +118,8 @@ export default function ChannelGrid({ sourceId, selectedCategoryId, onChannelCli
     )
   }
 
+  const favSet = favoriteIds ?? new Set<string>()
+
   return (
     <div ref={containerRef} className="flex-1 p-3 sm:p-4 md:p-6 lg:overflow-y-auto lg:max-h-[calc(100vh-200px)] lg:min-h-0">
       <div style={{ height: totalHeight, position: 'relative' }}>
@@ -114,7 +142,13 @@ export default function ChannelGrid({ sourceId, selectedCategoryId, onChannelCli
             >
               {rowChannels.map((channel) => (
                 <div key={channel.id} style={{ width: cardWidth, flexShrink: 0 }}>
-                  <ChannelCard channel={channel} onClick={onChannelClick} cardWidth={cardWidth} />
+                  <ChannelCard
+                    channel={channel}
+                    isFavorite={favSet.has(channel.id)}
+                    onToggleFavorite={handleToggleFavorite}
+                    onClick={onChannelClick}
+                    cardWidth={cardWidth}
+                  />
                 </div>
               ))}
             </div>

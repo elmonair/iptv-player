@@ -1,20 +1,18 @@
-import { useState } from 'react'
+import { getProxiedImageUrl } from '../../lib/imageProxy'
+import { memo, useState } from 'react'
 import { Heart } from 'lucide-react'
-import { usePlaylistStore } from '../../stores/playlistStore'
-import { useFavoritesStore } from '../../stores/favoritesStore'
 import type { ChannelRecord } from '../../lib/db'
 
 type Props = {
   channel: ChannelRecord
+  isFavorite: boolean
+  onToggleFavorite: (channelId: string) => void
   onClick: (channel: ChannelRecord) => void
   cardWidth?: number
 }
 
-export default function ChannelCard({ channel, onClick, cardWidth = 180 }: Props) {
+const ChannelCardInner = ({ channel, isFavorite, onToggleFavorite, onClick, cardWidth = 180 }: Props) => {
   const [imageError, setImageError] = useState(false)
-  const toggleFavorite = useFavoritesStore((state) => state.toggleFavorite)
-  const isFavorite = useFavoritesStore((state) => state.isFavorite)
-  const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' || e.key === ' ') {
@@ -27,16 +25,10 @@ export default function ChannelCard({ channel, onClick, cardWidth = 180 }: Props
   const logoSize = cardWidth < 180 ? 'w-10 h-10' : 'w-14 h-14'
   const fontSize = cardWidth < 180 ? 'text-lg' : 'text-xl'
 
-  const activeSource = getActiveSource()
-  const favorite = activeSource ? isFavorite('channel', channel.id) : false
-
   const handleFavoriteClick = (e: React.MouseEvent) => {
     e.preventDefault()
     e.stopPropagation()
-    if (activeSource) {
-      console.log('[ChannelCard favorite]', channel.name, channel.id)
-      toggleFavorite('channel', channel.id, activeSource.id)
-    }
+    onToggleFavorite(channel.id)
   }
 
   return (
@@ -52,16 +44,16 @@ export default function ChannelCard({ channel, onClick, cardWidth = 180 }: Props
       <button
         onClick={handleFavoriteClick}
         className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center bg-black/50 hover:bg-black/70 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500/50 backdrop-blur-sm z-10"
-        aria-label={favorite ? 'Remove from favorites' : 'Add to favorites'}
+        aria-label={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
       >
-        <Heart className={`w-3.5 h-3.5 transition-colors ${favorite ? 'text-red-500 fill-red-500' : 'text-white'}`} />
+        <Heart className={`w-3.5 h-3.5 transition-colors ${isFavorite ? 'text-red-500 fill-red-500' : 'text-white'}`} />
       </button>
 
       {/* Logo area */}
       <div className="h-20 sm:h-24 bg-slate-950 flex items-center justify-center p-3 rounded-t-lg">
         {!imageError && channel.logoUrl ? (
           <img
-            src={channel.logoUrl}
+            src={getProxiedImageUrl(channel.logoUrl) ?? ''}
             alt={channel.name}
             loading="lazy"
             onError={() => setImageError(true)}
@@ -83,3 +75,5 @@ export default function ChannelCard({ channel, onClick, cardWidth = 180 }: Props
     </div>
   )
 }
+
+export default memo(ChannelCardInner)

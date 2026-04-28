@@ -1,5 +1,7 @@
 import { db } from './db'
 
+const isProduction = import.meta.env.PROD
+
 export async function parseAndStoreXmltv(
   sourceUrl: string,
   username: string,
@@ -7,7 +9,9 @@ export async function parseAndStoreXmltv(
   sourceId: string,
   onProgress?: (loaded: number) => void
 ): Promise<{ totalPrograms: number; channelsWithEpg: number }> {
-  const url = `${sourceUrl}/xmltv.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
+  const url = isProduction
+    ? `/api/xmltv?serverUrl=${encodeURIComponent(sourceUrl)}&username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
+    : `${sourceUrl}/xmltv.php?username=${encodeURIComponent(username)}&password=${encodeURIComponent(password)}`
   console.log('[EPG] Starting sync for source:', sourceId, 'from:', url.replace(username, '[USER]').replace(password, '[PASS]'))
 
   console.log('[EPG] Clearing old EPG data for source:', sourceId)

@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Play, Heart, ArrowLeft, Star, Calendar, Clock, Film } from 'lucide-react'
+import { getProxiedImageUrl } from '../../lib/imageProxy'
 import { formatRating } from '../../lib/metadata'
 import type { MovieRecord } from '../../lib/db'
 
@@ -31,7 +32,7 @@ export default function MovieHero({
       {hasBackdrop && !imageError && (
         <div className="absolute inset-0 z-0">
           <img
-            src={movie.backdropUrl || movie.logoUrl}
+            src={getProxiedImageUrl(movie.backdropUrl) || getProxiedImageUrl(movie.logoUrl)}
             alt=""
             className="w-full h-full object-cover opacity-30 sm:opacity-100"
             onError={() => setImageError(true)}
@@ -59,7 +60,7 @@ export default function MovieHero({
             <div className="w-[105px] h-[155px] sm:w-[130px] sm:h-[195px] md:w-[220px] md:h-[330px] rounded-lg sm:rounded-xl overflow-hidden shadow-lg sm:shadow-xl border border-slate-700 bg-slate-800">
               {posterUrl && !imageError ? (
                 <img
-                  src={posterUrl}
+                  src={getProxiedImageUrl(posterUrl)}
                   alt={movie.name}
                   className="w-full h-full object-cover"
                   loading="lazy"

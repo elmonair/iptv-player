@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Film, Heart } from 'lucide-react'
 import { usePlaylistStore } from '../../stores/playlistStore'
+import { getProxiedImageUrl } from '../../lib/imageProxy'
 import { formatRating } from '../../lib/metadata'
 import { useFavoritesStore } from '../../stores/favoritesStore'
 import type { MovieRecord } from '../../lib/db'
@@ -46,7 +47,7 @@ export default function MovieCard({ movie, onClick }: Props) {
       <div className="aspect-[2/3] bg-slate-900 flex items-center justify-center relative">
         {movie.logoUrl && !imageError ? (
           <img
-            src={movie.logoUrl}
+            src={getProxiedImageUrl(movie.logoUrl)}
             alt={movie.name || 'Movie'}
             loading="lazy"
             onError={() => setImageError(true)}

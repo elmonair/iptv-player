@@ -17,9 +17,27 @@ export type { XtreamCredentials }
 
 const API_TIMEOUT = 30000
 
-function buildApiUrl(serverUrl: string, action: string, extraParams: Record<string, string> = {}): string {
-  const params = new URLSearchParams({ action, ...extraParams })
-  return `${serverUrl}/player_api.php?${params.toString()}`
+const isProduction = import.meta.env.PROD
+
+function buildApiUrl(
+  serverUrl: string,
+  action: string,
+  credentials: XtreamCredentials,
+  extraParams: Record<string, string> = {}
+): string {
+  if (isProduction) {
+    const params = new URLSearchParams({
+      serverUrl,
+      action,
+      username: credentials.username,
+      password: credentials.password,
+      ...extraParams
+    })
+    return `/api/xtream?${params.toString()}`
+  } else {
+    const params = new URLSearchParams({ action, ...extraParams })
+    return `${serverUrl}/player_api.php?${params.toString()}&username=${encodeURIComponent(credentials.username)}&password=${encodeURIComponent(credentials.password)}`
+  }
 }
 
 async function fetchJson<T>(
@@ -33,10 +51,10 @@ async function fetchJson<T>(
 
   let response: Response
   try {
-    const urlWithCreds = `${buildApiUrl(serverUrl, action, extraParams)}&username=${encodeURIComponent(credentials.username)}&password=${encodeURIComponent(credentials.password)}`
-    console.log(`[Xtream API] Fetching: ${action}`)
+    const url = buildApiUrl(serverUrl, action, credentials, extraParams)
+    console.log(`[Xtream API] Fetching: ${action} (mode: ${isProduction ? 'proxy' : 'direct'})`)
 
-    response = await fetch(urlWithCreds, {
+    response = await fetch(url, {
       signal: controller.signal,
     })
   } catch (err) {

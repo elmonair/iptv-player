@@ -10,6 +10,7 @@ import { TopNavBar } from '../components/TopNavBar'
 import { parseTitle, formatRating, formatYear, formatDuration, formatReleaseDate } from '../lib/metadata'
 import { getSeriesInfo } from '../lib/xtream'
 import type { XtreamSeriesInfo } from '../lib/xtreamTypes'
+import { getProxiedImageUrl } from '../lib/imageProxy'
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
@@ -317,7 +318,7 @@ export default function SeriesDetail() {
         {hasBackdrop && !imageError && (
           <div className="absolute inset-0 z-0">
             <img
-              src={betterBackdrop || series.backdropUrl || series.logoUrl}
+              src={getProxiedImageUrl(betterBackdrop) || getProxiedImageUrl(series.backdropUrl) || getProxiedImageUrl(series.logoUrl)}
               alt=""
               className="w-full h-full object-cover"
               onError={() => setImageError(true)}
@@ -343,7 +344,7 @@ export default function SeriesDetail() {
               <div className="flex-shrink-0 mx-auto md:mx-0">
                 <div className="w-[170px] sm:w-[190px] md:w-[200px] lg:w-[230px] aspect-[2/3] rounded-lg overflow-hidden shadow-2xl border border-slate-700/50 bg-slate-800">
                   {betterPoster ? (
-                    <img src={betterPoster} alt={cleanTitle} className="w-full h-full object-cover" loading="lazy" />
+                    <img src={getProxiedImageUrl(betterPoster)} alt={cleanTitle} className="w-full h-full object-cover" loading="lazy" />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-slate-800 to-slate-900">
                       <Monitor className="w-10 h-10 text-slate-600" />

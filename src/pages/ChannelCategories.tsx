@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronDown, ChevronUp, Star, ChevronRight, ArrowLeft, Heart } from 'lucide-react'
+import { ChevronDown, ChevronUp, Star, ChevronRight, ArrowLeft } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
 import { useFavoritesStore } from '../stores/favoritesStore'
@@ -9,6 +9,7 @@ import { db } from '../lib/db'
 import { TopNavBar } from '../components/TopNavBar'
 import MovieCard from '../components/movies/MovieCard'
 import SeriesCard from '../components/series/SeriesCard'
+import VirtualChannelGrid from '../components/live/VirtualChannelGrid'
 import type { CategoryRecord, ChannelRecord, MovieRecord, SeriesRecord } from '../lib/db'
 
 type Tab = 'channels' | 'movies' | 'series'
@@ -41,6 +42,7 @@ export default function ChannelCategories() {
 
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
   const activeSource = getActiveSource()
+  const toggleFavorite = useFavoritesStore((state) => state.toggleFavorite)
   const browseState = useBrowseStore((s) => s.state)
   const { setSection, selectCategory, enterPlayer, saveItems, saveScrollTop, setFocusedItem, setSelectedSeries } = useBrowseStore()
 
@@ -149,6 +151,25 @@ export default function ChannelCategories() {
     [activeSource?.id, selectedTab],
   )
 
+  // Compute favorite IDs as a Set for O(1) lookup (avoids per-card store subscriptions)
+  const favoriteIds = useLiveQuery(
+    async () => {
+      if (!activeSource) return new Set<string>()
+      const favorites = await db.favorites
+        .where('sourceId')
+        .equals(activeSource.id)
+        .and(f => f.itemType === 'channel')
+        .toArray()
+      return new Set(favorites.map(f => f.itemId))
+    },
+    [activeSource?.id],
+  )
+
+  const handleToggleFavorite = useCallback((channelId: string) => {
+    const src = activeSource
+    if (src) toggleFavorite('channel', channelId, src.id)
+  }, [activeSource, toggleFavorite])
+
   const itemCounts = useLiveQuery(
     async () => {
       if (!activeSource) return new Map<string, number>()
@@ -175,6 +196,14 @@ export default function ChannelCategories() {
   const previewItems = useLiveQuery(
     async () => {
       if (!activeSource) return []
+
+      // Return cached items from browseStore if available for this section+category
+      const currentSection = selectedTab === 'channels' ? 'live' : selectedTab === 'movies' ? 'movies' : 'series'
+      const cachedSection = browseState[currentSection]
+      if (cachedSection.hasLoaded && cachedSection.selectedCategoryId === selectedCategoryId && cachedSection.items.length > 0) {
+        console.log('[ChannelCategories] Using cached items for:', currentSection, selectedCategoryId, cachedSection.items.length, 'items')
+        return cachedSection.items
+      }
 
       const FAVORITES_CATEGORY_ID = 'favorites'
 
@@ -218,6 +247,10 @@ export default function ChannelCategories() {
   const allMovies = useLiveQuery(
     async () => {
       if (!activeSource || selectedTab !== 'movies' || selectedCategoryId) return []
+      // Return cached if available
+      if (browseState.movies.hasLoaded && browseState.movies.items.length > 0 && !browseState.movies.selectedCategoryId) {
+        return browseState.movies.items
+      }
       return db.movies.where('sourceId').equals(activeSource.id).toArray()
     },
     [activeSource?.id, selectedTab, selectedCategoryId],
@@ -227,6 +260,10 @@ export default function ChannelCategories() {
   const allSeries = useLiveQuery(
     async () => {
       if (!activeSource || selectedTab !== 'series' || selectedCategoryId) return []
+      // Return cached if available
+      if (browseState.series.hasLoaded && browseState.series.items.length > 0 && !browseState.series.selectedCategoryId) {
+        return browseState.series.items
+      }
       return db.series.where('sourceId').equals(activeSource.id).toArray()
     },
     [activeSource?.id, selectedTab, selectedCategoryId],
@@ -596,13 +633,14 @@ export default function ChannelCategories() {
 
                 {safePreviewItems.length > 0 && (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 sm:gap-4">
-                    {selectedTab === 'channels' && safePreviewItems.map(item => (
-                      <ChannelCard
-                        key={(item as ChannelRecord)?.id || Math.random()}
-                        channel={item as ChannelRecord}
-                        onClick={() => handleItemClick(item)}
+                    {selectedTab === 'channels' && safePreviewItems.length > 0 && (
+                      <VirtualChannelGrid
+                        channels={safePreviewItems as ChannelRecord[]}
+                        favoriteIds={favoriteIds ?? new Set<string>()}
+                        onToggleFavorite={handleToggleFavorite}
+                        onItemClick={handleItemClick}
                       />
-                    ))}
+                    )}
                     {selectedTab === 'movies' && safePreviewItems.map(item => (
                       <MovieCard
                         key={(item as MovieRecord)?.id || Math.random()}
@@ -885,72 +923,5 @@ function SidebarPlaylistDropdown({ onClose }: SidebarPlaylistDropdownProps) {
         })}
       </div>
     </>
-  )
-}
-
-type ChannelCardProps = {
-  channel: ChannelRecord
-  onClick: () => void
-}
-
-function ChannelCard({ channel, onClick }: ChannelCardProps) {
-  const [imageError, setImageError] = useState(false)
-  const toggleFavorite = useFavoritesStore((state) => state.toggleFavorite)
-  const isFavorite = useFavoritesStore((state) => state.isFavorite)
-  const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
-  
-  if (!channel) {
-    return null
-  }
-  
-  const name = safeName(channel) || 'Untitled'
-  const initial = name.charAt(0).toUpperCase()
-  const logoUrl = channel?.logoUrl
-  const activeSource = getActiveSource()
-  const favorite = activeSource ? isFavorite('channel', channel.id) : false
-
-  const handleFavoriteClick = (e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    if (activeSource) {
-      console.log('[ChannelFavorite] toggle', channel.id, channel.name)
-      toggleFavorite('channel', channel.id, activeSource.id)
-    }
-  }
-
-  return (
-    <button
-      onClick={onClick}
-      className="group bg-slate-800 rounded-lg overflow-hidden border border-slate-700 hover:border-indigo-500 transition-all hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 relative"
-    >
-      <div className="relative aspect-square bg-slate-900 flex items-center justify-center p-4">
-        {/* Favorite heart button */}
-        <button
-          onClick={handleFavoriteClick}
-          className="absolute top-2 right-2 w-7 h-7 flex items-center justify-center bg-black/50 hover:bg-black/70 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-violet-500/50 backdrop-blur-sm z-10"
-          aria-label={favorite ? 'Remove from favorites' : 'Add to favorites'}
-        >
-          <Heart className={`w-3.5 h-3.5 transition-colors ${favorite ? 'text-red-500 fill-red-500' : 'text-white'}`} />
-        </button>
-        {!imageError && logoUrl ? (
-          <img
-            src={logoUrl}
-            alt={name}
-            className="w-full h-full object-contain"
-            loading="lazy"
-            onError={() => setImageError(true)}
-          />
-        ) : (
-          <div className="w-16 h-16 rounded-full bg-slate-700 flex items-center justify-center">
-            <span className="text-white text-2xl font-bold">{initial}</span>
-          </div>
-        )}
-      </div>
-      <div className="p-2">
-        <p className="text-white text-sm font-medium truncate text-center" title={name}>
-          {name}
-        </p>
-      </div>
-    </button>
   )
 }

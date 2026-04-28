@@ -12,6 +12,7 @@ export type BrowseState = {
     scrollTop: number
     focusedItemId: string | null
     items: ChannelRecord[]
+    hasLoaded: boolean
   }
   movies: {
     selectedCategoryId: string | null
@@ -19,6 +20,7 @@ export type BrowseState = {
     scrollTop: number
     focusedItemId: string | null
     items: MovieRecord[]
+    hasLoaded: boolean
   }
   series: {
     selectedCategoryId: string | null
@@ -31,6 +33,7 @@ export type BrowseState = {
     focusedItemId: string | null
     focusedEpisodeId: string | null
     items: SeriesRecord[]
+    hasLoaded: boolean
   }
   lastPlayerContext: {
     section: Section
@@ -55,6 +58,9 @@ interface BrowseStore {
   exitPlayer: () => { section: Section; categoryId: string | null; itemId: string | null } | null
 
   clearCategory: () => void
+  markLoaded: (section: Section) => void
+  isSectionLoaded: (section: Section) => boolean
+  invalidateCache: () => void
 }
 
 export const useBrowseStore = create<BrowseStore>((set, get) => ({
@@ -66,6 +72,7 @@ export const useBrowseStore = create<BrowseStore>((set, get) => ({
       scrollTop: 0,
       focusedItemId: null,
       items: [],
+      hasLoaded: false,
     },
     movies: {
       selectedCategoryId: null,
@@ -73,6 +80,7 @@ export const useBrowseStore = create<BrowseStore>((set, get) => ({
       scrollTop: 0,
       focusedItemId: null,
       items: [],
+      hasLoaded: false,
     },
     series: {
       selectedCategoryId: null,
@@ -85,6 +93,7 @@ export const useBrowseStore = create<BrowseStore>((set, get) => ({
       focusedItemId: null,
       focusedEpisodeId: null,
       items: [],
+      hasLoaded: false,
     },
     lastPlayerContext: null,
   },
@@ -101,21 +110,21 @@ export const useBrowseStore = create<BrowseStore>((set, get) => ({
       set((s) => ({
         state: {
           ...s.state,
-          live: { ...s.state.live, selectedCategoryId: categoryId, selectedCategoryName: categoryName, items: [], scrollTop: 0, focusedItemId: null },
+          live: { ...s.state.live, selectedCategoryId: categoryId, selectedCategoryName: categoryName, scrollTop: 0, focusedItemId: null },
         },
       }))
     } else if (section === 'movies') {
       set((s) => ({
         state: {
           ...s.state,
-          movies: { ...s.state.movies, selectedCategoryId: categoryId, selectedCategoryName: categoryName, items: [], scrollTop: 0, focusedItemId: null },
+          movies: { ...s.state.movies, selectedCategoryId: categoryId, selectedCategoryName: categoryName, scrollTop: 0, focusedItemId: null },
         },
       }))
     } else {
       set((s) => ({
         state: {
           ...s.state,
-          series: { ...s.state.series, selectedCategoryId: categoryId, selectedCategoryName: categoryName, items: [], scrollTop: 0, focusedItemId: null },
+          series: { ...s.state.series, selectedCategoryId: categoryId, selectedCategoryName: categoryName, scrollTop: 0, focusedItemId: null },
         },
       }))
     }
@@ -146,11 +155,11 @@ export const useBrowseStore = create<BrowseStore>((set, get) => ({
   saveItems: (items) => {
     const { state } = get()
     if (state.section === 'live') {
-      set((s) => ({ state: { ...s.state, live: { ...s.state.live, items: items as ChannelRecord[] } } }))
+      set((s) => ({ state: { ...s.state, live: { ...s.state.live, items: items as ChannelRecord[], hasLoaded: true } } }))
     } else if (state.section === 'movies') {
-      set((s) => ({ state: { ...s.state, movies: { ...s.state.movies, items: items as MovieRecord[] } } }))
+      set((s) => ({ state: { ...s.state, movies: { ...s.state.movies, items: items as MovieRecord[], hasLoaded: true } } }))
     } else {
-      set((s) => ({ state: { ...s.state, series: { ...s.state.series, items: items as SeriesRecord[] } } }))
+      set((s) => ({ state: { ...s.state, series: { ...s.state.series, items: items as SeriesRecord[], hasLoaded: true } } }))
     }
   },
 
@@ -206,12 +215,40 @@ export const useBrowseStore = create<BrowseStore>((set, get) => ({
   clearCategory: () => {
     const { state } = get()
     if (state.section === 'live') {
-      set((s) => ({ state: { ...s.state, live: { ...s.state.live, selectedCategoryId: null, selectedCategoryName: null, items: [], scrollTop: 0, focusedItemId: null } } }))
+      set((s) => ({ state: { ...s.state, live: { ...s.state.live, selectedCategoryId: null, selectedCategoryName: null, scrollTop: 0, focusedItemId: null } } }))
     } else if (state.section === 'movies') {
-      set((s) => ({ state: { ...s.state, movies: { ...s.state.movies, selectedCategoryId: null, selectedCategoryName: null, items: [], scrollTop: 0, focusedItemId: null } } }))
+      set((s) => ({ state: { ...s.state, movies: { ...s.state.movies, selectedCategoryId: null, selectedCategoryName: null, scrollTop: 0, focusedItemId: null } } }))
     } else {
-      set((s) => ({ state: { ...s.state, series: { ...s.state.series, selectedCategoryId: null, selectedCategoryName: null, selectedSeriesId: null, selectedSeasonNumber: null, selectedEpisodeId: null, items: [], scrollTop: 0, episodeListScrollTop: 0, focusedItemId: null, focusedEpisodeId: null } } }))
+      set((s) => ({ state: { ...s.state, series: { ...s.state.series, selectedCategoryId: null, selectedCategoryName: null, selectedSeriesId: null, selectedSeasonNumber: null, selectedEpisodeId: null, scrollTop: 0, episodeListScrollTop: 0, focusedItemId: null, focusedEpisodeId: null } } }))
     }
+  },
+
+  markLoaded: (section) => {
+    if (section === 'live') {
+      set((s) => ({ state: { ...s.state, live: { ...s.state.live, hasLoaded: true } } }))
+    } else if (section === 'movies') {
+      set((s) => ({ state: { ...s.state, movies: { ...s.state.movies, hasLoaded: true } } }))
+    } else {
+      set((s) => ({ state: { ...s.state, series: { ...s.state.series, hasLoaded: true } } }))
+    }
+  },
+
+  isSectionLoaded: (section) => {
+    const { state } = get()
+    if (section === 'live') return state.live.hasLoaded
+    if (section === 'movies') return state.movies.hasLoaded
+    return state.series.hasLoaded
+  },
+
+  invalidateCache: () => {
+    set((s) => ({
+      state: {
+        ...s.state,
+        live: { ...s.state.live, hasLoaded: false, items: [] },
+        movies: { ...s.state.movies, hasLoaded: false, items: [] },
+        series: { ...s.state.series, hasLoaded: false, items: [] },
+      },
+    }))
   },
 }))
 
