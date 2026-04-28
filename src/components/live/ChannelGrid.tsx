@@ -39,7 +39,6 @@ export default function ChannelGrid({ sourceId, selectedCategoryId, onChannelCli
 
   const activeSource = getActiveSource()
 
-  // Get favorite IDs as a Set for O(1) lookup
   const favoriteIds = useLiveQuery(
     async () => {
       if (!sourceId) return new Set<string>()
@@ -121,39 +120,41 @@ export default function ChannelGrid({ sourceId, selectedCategoryId, onChannelCli
   const favSet = favoriteIds ?? new Set<string>()
 
   return (
-    <div ref={containerRef} className="flex-1 p-3 sm:p-4 md:p-6 lg:overflow-y-auto lg:max-h-[calc(100vh-200px)] lg:min-h-0">
-      <div style={{ height: totalHeight, position: 'relative' }}>
-        {virtualizer.getVirtualItems().map((virtualRow) => {
-          const rowStartIndex = virtualRow.index * columns
-          const rowChannels = channels.slice(rowStartIndex, rowStartIndex + columns)
+    <div className="flex flex-col h-full">
+      <div ref={containerRef} className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6">
+        <div style={{ height: totalHeight, position: 'relative' }}>
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const rowStartIndex = virtualRow.index * columns
+            const rowChannels = channels.slice(rowStartIndex, rowStartIndex + columns)
 
-          return (
-            <div
-              key={virtualRow.key}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: `${virtualRow.size}px`,
-                transform: `translateY(${virtualRow.start}px)`,
-              }}
-              className="flex gap-3 sm:gap-4"
-            >
-              {rowChannels.map((channel) => (
-                <div key={channel.id} style={{ width: cardWidth, flexShrink: 0 }}>
-                  <ChannelCard
-                    channel={channel}
-                    isFavorite={favSet.has(channel.id)}
-                    onToggleFavorite={handleToggleFavorite}
-                    onClick={onChannelClick}
-                    cardWidth={cardWidth}
-                  />
-                </div>
-              ))}
-            </div>
-          )
-        })}
+            return (
+              <div
+                key={virtualRow.key}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: `${virtualRow.size}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+                className="flex gap-3 sm:gap-4"
+              >
+                {rowChannels.map((channel) => (
+                  <div key={channel.id} style={{ width: cardWidth, flexShrink: 0 }}>
+                    <ChannelCard
+                      channel={channel}
+                      isFavorite={favSet.has(channel.id)}
+                      onToggleFavorite={handleToggleFavorite}
+                      onClick={onChannelClick}
+                      cardWidth={cardWidth}
+                    />
+                  </div>
+                ))}
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )

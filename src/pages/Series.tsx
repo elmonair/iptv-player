@@ -103,7 +103,7 @@ export default function Series() {
         </svg>
       </button>
 
-      <div className="flex-1 h-full overflow-y-auto flex flex-col min-h-0">
+      <div className="flex-1 h-full flex flex-col overflow-hidden min-h-0">
         {/* Content header */}
         <div className="flex-shrink-0 bg-slate-900 border-b border-slate-800 px-4 py-3 flex items-center gap-3">
           <Monitor className="w-5 h-5 text-violet-400 flex-shrink-0" />

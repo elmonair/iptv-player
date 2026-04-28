@@ -40,14 +40,18 @@ export default function SeriesDetail() {
 
   const series = useLiveQuery(
     async () => {
-      if (!seriesId) return null
-      const allSeries = await db.series.toArray()
-      return allSeries.find(s =>
+      if (!seriesId || !activeSource) return null
+      const matches = await db.series
+        .where('sourceId')
+        .equals(activeSource.id)
+        .toArray()
+
+      return matches.find(s =>
         String(s.externalId) === String(seriesId) ||
         String(s.id) === String(seriesId)
       ) || null
     },
-    [seriesId],
+    [seriesId, activeSource?.id],
   )
 
   const categoryName = useLiveQuery(

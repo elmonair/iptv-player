@@ -88,7 +88,7 @@ export default function LiveTV() {
         </svg>
       </button>
 
-      <div className="flex-1 h-full overflow-y-auto">
+      <div className="flex-1 h-full flex flex-col min-h-0">
         <ChannelGrid
           sourceId={activeSource.id}
           selectedCategoryId={selectedCategoryId}

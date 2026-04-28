@@ -73,7 +73,7 @@ async function fetchJson<T>(
 
   const bodyText = await response.text()
 
-  const trimmed = bodyText.trimStart()
+  const trimmed = String(bodyText ?? '').trimStart()
   if (trimmed.startsWith('<')) {
     throw new Error('Xtream server returned HTML instead of JSON (check CORS headers or server URL)')
   }

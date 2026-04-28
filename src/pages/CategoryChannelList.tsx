@@ -47,7 +47,7 @@ export default function CategoryChannelList() {
   const handleChannelClick = useCallback((channelId: string) => {
     const catId = categoryId && categoryId !== '__all__' ? decodeURIComponent(categoryId) : null
     const channel = channels?.find((c) => c.id === channelId)
-    if (channels) saveItems(channels)
+    if (channels) saveItems(channels, catId)
     enterPlayer(channelId)
     setFocusedItem(channelId)
     selectCategory(catId, categoryName ?? null)

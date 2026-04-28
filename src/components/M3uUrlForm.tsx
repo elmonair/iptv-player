@@ -13,7 +13,8 @@ export default function M3uUrlForm() {
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const isValidUrl = (url: string): boolean => {
-    return url.startsWith('http://') || url.startsWith('https://')
+    const safeUrl = String(url ?? '')
+    return safeUrl.startsWith('http://') || safeUrl.startsWith('https://')
   }
 
   const extractHostname = (url: string): string => {

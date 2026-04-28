@@ -118,33 +118,35 @@ export default function MovieGrid({ sourceId, selectedCategoryId, onMovieClick, 
   }
 
   return (
-    <div ref={containerRef} className="flex-1 overflow-y-auto">
-      <div style={{ height: totalHeight, position: 'relative' }}>
-        {virtualizer.getVirtualItems().map((virtualRow) => {
-          const rowStartIndex = virtualRow.index * columns
-          const rowMovies = movies.slice(rowStartIndex, rowStartIndex + columns)
+    <div className="flex flex-col h-full">
+      <div ref={containerRef} className="flex-1 overflow-y-auto p-3 sm:p-4 md:p-6">
+        <div style={{ height: totalHeight, position: 'relative' }}>
+          {virtualizer.getVirtualItems().map((virtualRow) => {
+            const rowStartIndex = virtualRow.index * columns
+            const rowMovies = movies.slice(rowStartIndex, rowStartIndex + columns)
 
-          return (
-            <div
-              key={virtualRow.key}
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: `${virtualRow.size}px`,
-                transform: `translateY(${virtualRow.start}px)`,
-              }}
-              className="flex gap-3"
-            >
-              {rowMovies.map((movie) => (
-                <div key={movie.id} style={{ width: cardWidth, flexShrink: 0 }}>
-                  <MovieCard movie={movie} onClick={onMovieClick} />
-                </div>
-              ))}
-            </div>
-          )
-        })}
+            return (
+              <div
+                key={virtualRow.key}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  width: '100%',
+                  height: `${virtualRow.size}px`,
+                  transform: `translateY(${virtualRow.start}px)`,
+                }}
+                className="flex gap-3"
+              >
+                {rowMovies.map((movie) => (
+                  <div key={movie.id} style={{ width: cardWidth, flexShrink: 0 }}>
+                    <MovieCard movie={movie} onClick={onMovieClick} />
+                  </div>
+                ))}
+              </div>
+            )
+          })}
+        </div>
       </div>
     </div>
   )

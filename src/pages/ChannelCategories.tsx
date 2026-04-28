@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { ChevronDown, ChevronUp, Star, ChevronRight, ArrowLeft } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
-import { useBrowseStore } from '../stores/browseStore'
+import { ALL_ITEMS_CACHE_KEY, FAVORITES_CATEGORY_ID, getCategoryCacheKey, useBrowseStore } from '../stores/browseStore'
 import { useFavoritesStore } from '../stores/favoritesStore'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../lib/db'
@@ -33,7 +33,7 @@ export default function ChannelCategories() {
 
   const [selectedTab, setSelectedTab] = useState<Tab>(tabParam || 'channels')
   const [showPlaylistDropdown, setShowPlaylistDropdown] = useState(false)
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null)
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(tabParam === 'channels' || !tabParam ? FAVORITES_CATEGORY_ID : null)
   const [isDesktop, setIsDesktop] = useState(false)
   const [mobileView, setMobileView] = useState<'categories' | 'items'>('categories')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -44,7 +44,8 @@ export default function ChannelCategories() {
   const activeSource = getActiveSource()
   const toggleFavorite = useFavoritesStore((state) => state.toggleFavorite)
   const browseState = useBrowseStore((s) => s.state)
-  const { setSection, selectCategory, enterPlayer, saveItems, saveScrollTop, setFocusedItem, setSelectedSeries } = useBrowseStore()
+  const { setSection, selectCategory, enterPlayer, saveItems, saveScrollTop, setFocusedItem, setSelectedSeries, loadCategoryItems } = useBrowseStore()
+  const currentSection = selectedTab === 'channels' ? 'live' : selectedTab === 'movies' ? 'movies' : 'series'
 
   useEffect(() => {
     const checkDesktop = () => setIsDesktop(window.innerWidth >= 1024)
@@ -58,7 +59,7 @@ export default function ChannelCategories() {
       console.log('[ChannelCategories] Tab param changed:', { from: selectedTab, to: tabParam })
       setSelectedTab(tabParam)
       setMobileView('categories')
-      setSelectedCategoryId(null)
+      setSelectedCategoryId(tabParam === 'channels' ? FAVORITES_CATEGORY_ID : null)
     }
   }, [tabParam])
 
@@ -77,15 +78,17 @@ export default function ChannelCategories() {
   }, [categoryParam, isDesktop])
 
   useEffect(() => {
-    const section = selectedTab === 'channels' ? 'live' : selectedTab === 'movies' ? 'movies' : 'series'
-    const sectionState = browseState[section]
+    const sectionState = browseState[currentSection]
+    const restoredCategoryId = sectionState.selectedCategoryId
+    const restoredCacheKey = getCategoryCacheKey(restoredCategoryId)
+    const restoredItems = sectionState.itemsByCategory[restoredCacheKey] ?? []
 
-    if (sectionState.selectedCategoryId && sectionState.items.length > 0) {
+    if (restoredCategoryId && restoredItems.length > 0) {
       if (!selectedCategoryId || selectedCategoryId !== sectionState.selectedCategoryId) {
         console.log('[ChannelCategories] Restoring from browse state:', { 
-          section, 
+          section: currentSection, 
           categoryId: sectionState.selectedCategoryId,
-          itemCount: sectionState.items.length 
+          itemCount: restoredItems.length 
         })
         setSelectedCategoryId(sectionState.selectedCategoryId)
         if (!isDesktop) {
@@ -93,16 +96,15 @@ export default function ChannelCategories() {
         }
       }
     }
-  }, [isDesktop, selectedTab])
+  }, [browseState, currentSection, isDesktop, selectedCategoryId])
 
   useEffect(() => {
-    const section = selectedTab === 'channels' ? 'live' : selectedTab === 'movies' ? 'movies' : 'series'
-    const sectionState = browseState[section]
+    const sectionState = browseState[currentSection]
 
     if (scrollRef.current && sectionState.scrollTop > 0) {
       scrollRef.current.scrollTop = sectionState.scrollTop
     }
-  }, [selectedCategoryId])
+  }, [browseState, currentSection, selectedCategoryId])
 
   // Request ID pattern for categories
   const [categoriesLoading, setCategoriesLoading] = useState(false)
@@ -193,91 +195,35 @@ export default function ChannelCategories() {
     [activeSource?.id, selectedTab],
   )
 
-  const previewItems = useLiveQuery(
-    async () => {
-      if (!activeSource) return []
+  const selectedCacheKey = useMemo(() => {
+    if (selectedTab === 'channels') {
+      return getCategoryCacheKey(selectedCategoryId)
+    }
+    if (!selectedCategoryId) {
+      return null
+    }
+    return getCategoryCacheKey(selectedCategoryId)
+  }, [selectedCategoryId, selectedTab])
 
-      // Return cached items from browseStore if available for this section+category
-      const currentSection = selectedTab === 'channels' ? 'live' : selectedTab === 'movies' ? 'movies' : 'series'
-      const cachedSection = browseState[currentSection]
-      if (cachedSection.hasLoaded && cachedSection.selectedCategoryId === selectedCategoryId && cachedSection.items.length > 0) {
-        console.log('[ChannelCategories] Using cached items for:', currentSection, selectedCategoryId, cachedSection.items.length, 'items')
-        return cachedSection.items
-      }
-
-      const FAVORITES_CATEGORY_ID = 'favorites'
-
-      if (selectedCategoryId === FAVORITES_CATEGORY_ID) {
-        const favorites = await db.favorites.where('sourceId').equals(activeSource.id).toArray()
-        const itemType = selectedTab === 'channels' ? 'channel' : selectedTab === 'movies' ? 'movie' : 'series'
-
-        const favoriteIds = favorites
-          .filter(f => f.itemType === itemType)
-          .map(f => f.itemId)
-
-        if (favoriteIds.length === 0) return []
-
-        if (selectedTab === 'channels') {
-          return db.channels.where('id').anyOf(favoriteIds).toArray()
-        } else if (selectedTab === 'movies') {
-          return db.movies.where('id').anyOf(favoriteIds).toArray()
-        } else {
-          return db.series.where('id').anyOf(favoriteIds).toArray()
-        }
-      }
-
-      if (selectedCategoryId) {
-        if (selectedTab === 'channels') {
-          return db.channels.where('categoryId').equals(selectedCategoryId).toArray()
-        } else if (selectedTab === 'movies') {
-          return db.movies.where('categoryId').equals(selectedCategoryId).toArray()
-        } else {
-          return db.series.where('categoryId').equals(selectedCategoryId).toArray()
-        }
-      }
-      if (selectedTab === 'channels') {
-        return db.channels.where('sourceId').equals(activeSource.id).toArray()
-      }
+  const currentSectionState = browseState[currentSection]
+  const safePreviewItems = useMemo(() => {
+    if (!selectedCacheKey) {
       return []
-    },
-    [activeSource?.id, selectedCategoryId, selectedTab],
-  )
+    }
+    return currentSectionState.itemsByCategory[selectedCacheKey] ?? []
+  }, [currentSectionState.itemsByCategory, selectedCacheKey])
 
-  // Load all movies for Movies Home view (when no category selected)
-  const allMovies = useLiveQuery(
-    async () => {
-      if (!activeSource || selectedTab !== 'movies' || selectedCategoryId) return []
-      // Return cached if available
-      if (browseState.movies.hasLoaded && browseState.movies.items.length > 0 && !browseState.movies.selectedCategoryId) {
-        return browseState.movies.items
-      }
-      return db.movies.where('sourceId').equals(activeSource.id).toArray()
-    },
-    [activeSource?.id, selectedTab, selectedCategoryId],
-  )
-
-  // Load all series for Series Home view (when no category selected)
-  const allSeries = useLiveQuery(
-    async () => {
-      if (!activeSource || selectedTab !== 'series' || selectedCategoryId) return []
-      // Return cached if available
-      if (browseState.series.hasLoaded && browseState.series.items.length > 0 && !browseState.series.selectedCategoryId) {
-        return browseState.series.items
-      }
-      return db.series.where('sourceId').equals(activeSource.id).toArray()
-    },
-    [activeSource?.id, selectedTab, selectedCategoryId],
-  )
+  const allMovies = useMemo(() => browseState.movies.itemsByCategory[ALL_ITEMS_CACHE_KEY] ?? [], [browseState.movies.itemsByCategory])
+  const allSeries = useMemo(() => browseState.series.itemsByCategory[ALL_ITEMS_CACHE_KEY] ?? [], [browseState.series.itemsByCategory])
+  const isCurrentCategoryLoading = selectedCacheKey ? currentSectionState.loadingCategoryIds.has(selectedCacheKey) : false
 
   useEffect(() => {
-    const safePreview = Array.isArray(previewItems) ? previewItems : []
-    if (safePreview.length > 0 && selectedCategoryId) {
-      const cat = categories?.find(c => c?.id === selectedCategoryId)
-      const catName = safeName(cat)
-      selectCategory(selectedCategoryId, catName || null)
-      saveItems(safePreview)
-    }
-  }, [previewItems, selectedCategoryId, categories])
+    if (!activeSource) return
+
+    void loadCategoryItems(currentSection, activeSource.id, selectedCategoryId).catch((error) => {
+      console.error('[ChannelCategories] Failed to load items for category:', error)
+    })
+  }, [activeSource, currentSection, loadCategoryItems, selectedCategoryId, selectedTab])
 
   const totalCount = itemCounts
     ? Array.from(itemCounts.values()).reduce((a, b) => a + b, 0)
@@ -286,6 +232,9 @@ export default function ChannelCategories() {
   const getCategoryName = () => {
     if (selectedCategoryId === null) {
       return selectedTab === 'channels' ? 'All Channels' : 'Select a category'
+    }
+    if (selectedCategoryId === FAVORITES_CATEGORY_ID) {
+      return 'Favorites'
     }
     const cat = categories?.find(c => c?.id === selectedCategoryId)
     return safeName(cat) || (selectedTab === 'channels' ? 'Channels' : 'Select a category')
@@ -308,7 +257,7 @@ export default function ChannelCategories() {
     console.log('[ChannelCategories] Incremented request ID:', requestIdRef.current)
 
     setSelectedTab(tab)
-    setSelectedCategoryId(null)
+    setSelectedCategoryId(tab === 'channels' ? FAVORITES_CATEGORY_ID : null)
     setMobileView('categories')
     const section = tab === 'channels' ? 'live' : tab === 'movies' ? 'movies' : 'series'
     setSection(section)
@@ -318,7 +267,7 @@ export default function ChannelCategories() {
   const handleMobileBackToCategories = () => {
     console.log('[ChannelCategories] Back to categories')
     setMobileView('categories')
-    const section = selectedTab === 'channels' ? 'live' : selectedTab
+    const section = currentSection
     if (categoryListRef.current && browseState[section]?.scrollTop > 0) {
       categoryListRef.current.scrollTop = browseState[section].scrollTop
     }
@@ -341,10 +290,13 @@ export default function ChannelCategories() {
 
     if (isDesktop) {
       setSelectedCategoryId(categoryId)
-      if (categoryId) {
-        const cat = categories?.find(c => c?.id === categoryId)
-        const catName = safeName(cat)
-        selectCategory(categoryId, catName || null)
+      const cat = categories?.find(c => c?.id === categoryId)
+      const catName = safeName(cat)
+      selectCategory(categoryId, catName || null)
+      if (activeSource) {
+        void loadCategoryItems(currentSection, activeSource.id, categoryId).catch((error) => {
+          console.error('[ChannelCategories] Failed to preload clicked category:', error)
+        })
       }
     } else {
       if (selectedTab === 'channels') {
@@ -355,6 +307,11 @@ export default function ChannelCategories() {
         const cat = categories?.find(c => c?.id === categoryId)
         const catName = safeName(cat)
         selectCategory(categoryId, catName || null)
+        if (activeSource) {
+          void loadCategoryItems(currentSection, activeSource.id, categoryId).catch((error) => {
+            console.error('[ChannelCategories] Failed to preload mobile category:', error)
+          })
+        }
         setMobileView('items')
         console.log('[ChannelCategories] Switched to mobile items view:', { categoryId, catName })
       }
@@ -385,9 +342,8 @@ export default function ChannelCategories() {
       if (scrollRef.current) {
         saveScrollTop(scrollRef.current.scrollTop)
       }
-      const safePreview = Array.isArray(previewItems) ? previewItems : []
-      if (safePreview.length > 0) {
-        saveItems(safePreview)
+      if (safePreviewItems.length > 0) {
+        saveItems(safePreviewItems, selectedCategoryId)
       }
       navigate(`/series/${encodeURIComponent(series.externalId)}`)
       return
@@ -400,9 +356,8 @@ export default function ChannelCategories() {
       if (scrollRef.current) {
         saveScrollTop(scrollRef.current.scrollTop)
       }
-      const safePreview = Array.isArray(previewItems) ? previewItems : []
-      if (safePreview.length > 0) {
-        saveItems(safePreview)
+      if (safePreviewItems.length > 0) {
+        saveItems(safePreviewItems, selectedCategoryId)
       }
       navigate(`/movie/${encodeURIComponent(movie.id)}`)
       return
@@ -411,9 +366,8 @@ export default function ChannelCategories() {
     // Channels - go directly to player
     enterPlayer(item.id)
     setFocusedItem(item.id)
-    const safePreview = Array.isArray(previewItems) ? previewItems : []
-    if (safePreview.length > 0) {
-      saveItems(safePreview)
+    if (safePreviewItems.length > 0) {
+      saveItems(safePreviewItems, selectedCategoryId)
     }
     const scrollY = scrollRef.current?.scrollTop || 0
     console.log('[ChannelCategories] Navigating to channel:', {
@@ -449,7 +403,6 @@ export default function ChannelCategories() {
   const showMobileItemsView = !isDesktop && mobileView === 'items' && selectedCategoryId && (selectedTab === 'movies' || selectedTab === 'series')
 
   const safeCategories: CategoryRecord[] = Array.isArray(categories) ? categories : []
-  const safePreviewItems: (ChannelRecord | MovieRecord | SeriesRecord)[] = Array.isArray(previewItems) ? previewItems : []
 
   return (
     <div className="h-screen bg-slate-900 flex flex-col overflow-hidden">
@@ -525,6 +478,13 @@ export default function ChannelCategories() {
             
             {!categoriesLoading && (
               <>
+                <CategoryListItem
+                  name="Favorites"
+                  count={favoritesCount || 0}
+                  starred
+                  isActive={selectedCategoryId === FAVORITES_CATEGORY_ID}
+                  onClick={() => handleCategoryClick(FAVORITES_CATEGORY_ID)}
+                />
                 {selectedTab === 'channels' && (
                   <CategoryListItem
                     name="All channels"
@@ -533,13 +493,6 @@ export default function ChannelCategories() {
                     onClick={() => handleCategoryClick(null)}
                   />
                 )}
-                <CategoryListItem
-                  name="Favorites"
-                  count={favoritesCount || 0}
-                  starred
-                  isActive={selectedCategoryId === 'favorites'}
-                  onClick={() => handleCategoryClick('favorites')}
-                />
               </>
             )}
 
@@ -589,7 +542,40 @@ export default function ChannelCategories() {
           </div>
 
           {/* Content Grid */}
-          <div className="flex-1 overflow-y-auto p-4">
+          {selectedTab === 'channels' ? (
+            <div className="flex-1 min-h-0 overflow-hidden">
+              {isCurrentCategoryLoading && safePreviewItems.length === 0 && (
+                <div className="flex items-center justify-center h-full">
+                  <p className="text-slate-400">Loading channels...</p>
+                </div>
+              )}
+
+              {!isCurrentCategoryLoading && safePreviewItems.length === 0 && (
+                <div className="flex items-center justify-center h-full">
+                  {selectedCategoryId === FAVORITES_CATEGORY_ID ? (
+                    <div className="flex flex-col items-center justify-center gap-4 text-center px-4">
+                      <Star className="w-12 h-12 text-slate-500" />
+                      <p className="text-slate-300">No favorites yet</p>
+                      <p className="text-sm text-slate-500">Star a channel to add it here</p>
+                    </div>
+                  ) : (
+                    <p className="text-slate-400">No channels in this category</p>
+                  )}
+                </div>
+              )}
+
+              {safePreviewItems.length > 0 && (
+                <VirtualChannelGrid
+                  key={selectedCategoryId ?? '__all__'}
+                  channels={safePreviewItems as ChannelRecord[]}
+                  favoriteIds={favoriteIds ?? new Set<string>()}
+                  onToggleFavorite={handleToggleFavorite}
+                  onItemClick={handleItemClick}
+                />
+              )}
+            </div>
+          ) : (
+            <div className="flex-1 overflow-y-auto p-4">
             {/* Movies Home View - when movies tab is active but no category selected */}
             {selectedTab === 'movies' && !selectedCategoryId && (
               <MoviesHome
@@ -613,34 +599,22 @@ export default function ChannelCategories() {
             )}
 
             {/* Regular category view */}
-            {((selectedTab !== 'movies' && selectedTab !== 'series') || selectedCategoryId) && (
+            {selectedCategoryId && (
               <>
-                {previewItems === undefined && (
+                {isCurrentCategoryLoading && safePreviewItems.length === 0 && (
                   <div className="flex items-center justify-center h-full">
-                    <p className="text-slate-400">Select a category</p>
+                    <p className="text-slate-400">Loading {selectedTab}...</p>
                   </div>
                 )}
 
-                {previewItems !== undefined && safePreviewItems.length === 0 && (
+                {!isCurrentCategoryLoading && safePreviewItems.length === 0 && (
                   <div className="flex items-center justify-center h-full">
-                    <p className="text-slate-400">
-                      {selectedTab === 'channels' ? 'No channels in this category' :
-                       selectedCategoryId === null ? 'Select a category to browse' :
-                       `No ${selectedTab} in this category`}
-                    </p>
+                    <p className="text-slate-400">No {selectedTab} in this category</p>
                   </div>
                 )}
 
                 {safePreviewItems.length > 0 && (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 sm:gap-4">
-                    {selectedTab === 'channels' && safePreviewItems.length > 0 && (
-                      <VirtualChannelGrid
-                        channels={safePreviewItems as ChannelRecord[]}
-                        favoriteIds={favoriteIds ?? new Set<string>()}
-                        onToggleFavorite={handleToggleFavorite}
-                        onItemClick={handleItemClick}
-                      />
-                    )}
                     {selectedTab === 'movies' && safePreviewItems.map(item => (
                       <MovieCard
                         key={(item as MovieRecord)?.id || Math.random()}
@@ -659,7 +633,8 @@ export default function ChannelCategories() {
                 )}
               </>
             )}
-          </div>
+            </div>
+          )}
         </main>
       </div>
     </div>

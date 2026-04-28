@@ -37,8 +37,19 @@ export default function MovieDetail() {
   const [vodInfo, setVodInfo] = useState<XtreamVodInfo | null>(null)
 
   const movie = useLiveQuery(
-    async () => movieId ? db.movies.where('id').equals(movieId).first() : null,
-    [movieId],
+    async () => {
+      if (!movieId || !activeSource) return null
+      const matches = await db.movies
+        .where('sourceId')
+        .equals(activeSource.id)
+        .toArray()
+
+      return matches.find(m =>
+        String(m.externalId) === String(movieId) ||
+        String(m.id) === String(movieId)
+      ) || null
+    },
+    [movieId, activeSource?.id],
   )
 
   const categoryName = useLiveQuery(
