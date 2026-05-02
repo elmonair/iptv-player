@@ -1,0 +1,53 @@
+# How to Run the Electron Prototype
+
+## Method 1: Double-Click (Easiest)
+
+1. Go to folder: `C:\iptv-player-github-review\electron-prototype`
+2. Double-click: `START.bat`
+
+## Method 2: Command Prompt
+
+1. Open Command Prompt (Win + R, type `cmd`, press Enter)
+2. Copy and paste this:
+```
+cd C:\iptv-player-github-review\electron-prototype
+START.bat
+```
+
+## Method 3: Direct Command
+
+1. Open Command Prompt
+2. Copy and paste:
+```
+cd C:\iptv-player-github-review\electron-prototype
+electron .
+```
+
+## If Electron is Not Installed
+
+1. Open Command Prompt as **Administrator** (right-click cmd, "Run as administrator")
+2. Run:
+```
+npm install -g electron
+```
+3. Then run the app
+
+## After the App Opens
+
+1. Login with your IPTV credentials
+2. Test playing movies, series, live TV
+3. Open the devtools (white window on right) - should auto-open
+4. Click "Network" tab in devtools
+5. Play a movie
+6. Check if URLs go to `line.dndnscloud.ru` directly (good!) or through `/proxy/` (bad)
+
+## Tell Me What You See
+
+After testing, let me know:
+
+1. Did the app open?
+2. Did login work?
+3. Did movies/series play?
+4. In Network tab - are requests going DIRECT to provider URL?
+
+This helps us decide if we should build a full Windows app!

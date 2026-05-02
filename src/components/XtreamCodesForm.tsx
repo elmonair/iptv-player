@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Eye, EyeOff, LockKeyhole, Server, UserRound } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
 
 const isSecureContext = typeof crypto !== 'undefined' && typeof crypto.subtle !== 'undefined'
@@ -17,6 +18,7 @@ export default function XtreamCodesForm() {
   const [passwordError, setPasswordError] = useState('')
   const [submitError, setSubmitError] = useState('')
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [showPassword, setShowPassword] = useState(false)
 
   const isValidUrl = (url: string): boolean => {
     const safeUrl = String(url ?? '')
@@ -99,7 +101,8 @@ export default function XtreamCodesForm() {
   return (
     <form onSubmit={handleSubmit} className="space-y-6">
       <div>
-        <label htmlFor="server-url" className="block text-sm font-medium text-slate-300 mb-2">
+        <label htmlFor="server-url" className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-300">
+          <Server className="h-4 w-4 text-slate-500" />
           Server URL
         </label>
         <input
@@ -111,6 +114,7 @@ export default function XtreamCodesForm() {
             clearUrlError()
           }}
           placeholder="http://example.com:8080"
+          autoComplete="url"
           className={`w-full px-4 py-3 bg-slate-800 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-4 focus:border-indigo-500 text-base ${
             urlError
               ? 'border-red-500 focus:ring-red-500/50'
@@ -121,7 +125,8 @@ export default function XtreamCodesForm() {
       </div>
 
       <div>
-        <label htmlFor="username" className="block text-sm font-medium text-slate-300 mb-2">
+        <label htmlFor="username" className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-300">
+          <UserRound className="h-4 w-4 text-slate-500" />
           Username
         </label>
         <input
@@ -132,6 +137,8 @@ export default function XtreamCodesForm() {
             setUsernameValue(e.target.value)
             clearUsernameError()
           }}
+          autoComplete="username"
+          placeholder="Enter your Xtream username"
           className={`w-full px-4 py-3 bg-slate-800 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-4 focus:border-indigo-500 text-base ${
             usernameError
               ? 'border-red-500 focus:ring-red-500/50'
@@ -142,23 +149,36 @@ export default function XtreamCodesForm() {
       </div>
 
       <div>
-        <label htmlFor="password" className="block text-sm font-medium text-slate-300 mb-2">
+        <label htmlFor="password" className="mb-2 flex items-center gap-2 text-sm font-medium text-slate-300">
+          <LockKeyhole className="h-4 w-4 text-slate-500" />
           Password
         </label>
-        <input
-          id="password"
-          type="password"
-          value={passwordValue}
-          onChange={(e) => {
-            setPasswordValue(e.target.value)
-            clearPasswordError()
-          }}
-          className={`w-full px-4 py-3 bg-slate-800 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-4 focus:border-indigo-500 text-base ${
-            passwordError
-              ? 'border-red-500 focus:ring-red-500/50'
-              : 'border-slate-700 focus:ring-indigo-500/50'
-          }`}
-        />
+        <div className="relative">
+          <input
+            id="password"
+            type={showPassword ? 'text' : 'password'}
+            value={passwordValue}
+            onChange={(e) => {
+              setPasswordValue(e.target.value)
+              clearPasswordError()
+            }}
+            autoComplete="current-password"
+            placeholder="Enter your Xtream password"
+            className={`w-full px-4 py-3 pr-12 bg-slate-800 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-4 focus:border-indigo-500 text-base ${
+              passwordError
+                ? 'border-red-500 focus:ring-red-500/50'
+                : 'border-slate-700 focus:ring-indigo-500/50'
+            }`}
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword((value) => !value)}
+            className="absolute inset-y-0 right-0 flex w-12 items-center justify-center text-slate-400 hover:text-white focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50 rounded-r-lg"
+            aria-label={showPassword ? 'Hide password' : 'Show password'}
+          >
+            {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+          </button>
+        </div>
         {passwordError && <p className="mt-2 text-sm text-red-500">{passwordError}</p>}
       </div>
 
@@ -172,16 +192,18 @@ export default function XtreamCodesForm() {
           value={nameValue}
           onChange={(e) => setNameValue(e.target.value)}
           placeholder="My Playlist"
+          autoComplete="organization"
           className="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-4 focus:ring-indigo-500/50 focus:border-indigo-500 text-base"
         />
+        <p className="mt-2 text-sm text-slate-500">Optional. Helpful when you use more than one provider.</p>
       </div>
 
       <button
         type="submit"
         disabled={isSubmitting}
-        className="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 text-white font-semibold rounded-lg text-base focus:outline-none focus:ring-4 focus:ring-indigo-500/50 transition-colors min-h-[44px] disabled:opacity-70"
+        className="w-full py-4 px-6 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-800 text-white font-semibold rounded-lg text-base focus:outline-none focus:ring-4 focus:ring-indigo-500/50 transition-colors min-h-[48px] disabled:opacity-70"
       >
-        {isSubmitting ? 'Loading...' : 'Login'}
+        {isSubmitting ? 'Saving Playlist...' : 'Continue'}
       </button>
 
       {submitError && <p className="text-sm text-red-500">{submitError}</p>}

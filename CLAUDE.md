@@ -180,6 +180,9 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 14. SeriesDetail: Reset `loading=true` when route parameter changes (useEffect with [seriesId]), otherwise stale `loading=false` causes wrong render
 15. SeriesDetail: API data (seriesInfo) may not be loaded when component renders — use optional chaining `seriesInfo?.info` not `seriesInfo.info` to avoid crashes
 16. ChannelCard heart button must use `e.stopPropagation()` to prevent card click (channel play) from firing when clicking heart
+17. Playlist switching persistence: `setActiveSource()` already writes `isActive` to Dexie, but `loadSourcesFromDb()` must also read `record.isActive` back into source objects or refresh falls back to the first-created playlist
+18. SeriesDetail: some providers return `get_series_info` with `info` and `seasons` but no `episodes`; guard every `Object.keys/Object.entries` access with `seriesInfo.episodes ?? {}` and treat `Play First` as unavailable when no episodes exist
+19. Some movie streams return broken metadata from provider (example: movie `1000165` returned `Content-Length: 0` on HEAD and `HTTP 458` on range request), so wrong video duration can be a provider stream issue rather than frontend logic
 
 ## Working style
 - Build one feature at a time, finish + commit before starting next
@@ -188,15 +191,19 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - Comment the "why" for non-obvious code, not the "what"
 
 ## Latest Commit
-**Commit**: `da5f9f2` — "Fix watch progress tracking for channels and clean up debug logs" (2026-04-26)
-**Changes**: 3 files changed, 9 insertions(+), 34 deletions(-)
+**Commit**: `a31d3ac` — "Fix movie and episode duration display using Xtream API real duration" (2026-05-02)
+**Changes**: 3 files changed, 150 insertions(+), 49 deletions(-)
 **Key changes**:
-- Added `onloadedmetadata` handler to channel playback (mpegts path) that calls `handleLoadedMetadata` to restore saved position
-- Added `startProgressTracking('channel', item.data.id)` to channel `onplaying` handler
-- Removed debug console.logs from `getContinueWatching` filter logic
-- Removed debug `debugWatchHistory` window function from ContinueWatchingSection
-- Removed console.log from ContinueWatchingCard handleClick
-- Build: 3 pre-existing TS errors remain (currentCategoryId, type comparison, selectedCategoryId — all unrelated)
+- MovieDetail: extract `duration_secs` from `getVodInfo` and pass as `realDuration` in navigate state
+- SeriesDetail: pass `duration_secs` from `episode.info` to episode navigate state
+- Watch: read `realDuration` from `location.state`; use it to override tiny fragmented MP4 duration in video overlay (top-right clock + bottom seek bar); fallback to `video.duration` when no realDuration
+- Removed native video `controls`; replaced with custom overlay showing `currentTime / displayDuration` with real duration from API
+- `onTimeUpdate` updates progress bar width, top-right clock, and status bar clock
+- `onLoadedMetadata` sets duration text using realDuration when available
+- Seek bar `onClick` calculates target time using `displayDuration` and seeks directly (progressive MP4 seek works natively; transcoded streams use existing `/transcode ?seek=` support)
+- `EpisodeInfo` type gains optional `realDuration` field
+- `formatTime` helper added to Watch.tsx (converts seconds to H:MM:SS or M:SS)
+- Status bar now shows "Playing · 0:00 / 0:00" while playing
 
 ## Current project state (updated 2026-04-27)
 
@@ -215,7 +222,7 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - Playlist sync and management
 - Top navigation with membership/playlist/device info
 - User dropdown menu with PIN code
-- Home page with welcome, stats, quick actions
+- Home page simplified into a more content-first launch pad (active playlist summary, continue watching, start watching, lighter playlist management)
 - Dark theme throughout
 - Mobile responsive design
 - Proxy server for live TV streams (CORS bypass)
@@ -228,6 +235,8 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 ### Known limitations
 - Series .mkv files play only if browser supports the codec
 - Some IPTV providers may buffer due to slow servers (not code issue)
+- Some providers return incomplete `get_series_info` payloads (missing `episodes`) for certain series
+- Some providers serve broken movie metadata/range responses, causing wrong duration display in browser video controls — now fixed by passing real duration from API via navigate state
 - EPG availability depends on provider — some channels have no EPG data
 - get_short_epg API not supported by most providers, using XMLTV instead
 - No search yet
@@ -280,6 +289,13 @@ AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhos
 - EPG streaming parser not trimming buffer (0 programs parsed)
 - EPG parseProgrammeBlock regex not matching title without lang attr
 - EPG Dexie bulkAdd failing on re-sync duplicates — changed to bulkPut
+
+## Bugs fixed (2026-05-02 session)
+- Add playlist page simplified from a two-column promo layout to a cleaner single-card utility screen
+- Home page simplified to reduce dashboard clutter and emphasize content entry points
+- Active playlist persistence across refresh fixed by restoring `isActive` from Dexie in `playlistStore.loadSourcesFromDb()`
+- SeriesDetail crash fixed when provider returns `episodes: null/undefined` by guarding `Object.keys/Object.entries`
+- Movie and series detail pages received style-only polish (spacing, readability, info panel anchoring) without changing data logic
 
 ## Next features to build
 - Search across channels, movies, series

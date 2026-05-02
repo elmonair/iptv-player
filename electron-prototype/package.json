@@ -1,0 +1,21 @@
+{
+  "name": "iptv-player-electron-prototype",
+  "version": "1.0.0",
+  "description": "Electron prototype for testing IPTV Player as desktop app",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build-web": "cd .. && npm run build",
+    "dev": "electron . --dev"
+  },
+  "keywords": [
+    "electron",
+    "iptv",
+    "prototype"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}

@@ -1,0 +1,135 @@
+Electron Prototype Testing Checklist
+===================================
+
+PURPOSE OF THIS TEST:
+Prove whether running the IPTV Player as a Windows desktop app
+will bypass CORS/proxy issues and improve the user experience.
+
+QUICK START:
+1. Install Node.js: https://nodejs.org/ (LTS version)
+2. Open Command Prompt as Administrator
+3. cd C:\iptv-player-github-review\electron-prototype
+4. npm install -g electron
+5. electron .
+6. Or simply run: run-electron.bat
+
+TESTING CHECKLIST:
+==================
+
+Basics:
+[ ] App opens successfully (Electron window appears)
+[ ] Login screen loads correctly
+[ ] Can login with IPTV credentials
+[ ] Dashboard/Home page loads
+[ ] Navigation works (Live TV, Movies, Series tabs)
+
+Playback Tests:
+[ ] Live TV: Play a channel
+[ ] Live TV: Channel switching works
+[ ] Movies: Play a regular MP4 movie
+[ ] Movies: Play a problematic MKV file (E-AC3/DTS audio)
+[ ] Series: Navigate seasons/episodes
+[ ] Series: Play an episode
+[ ] Series: Episode switching works
+
+Technical Verification (Important!):
+[ ] Open DevTools (should open automatically)
+[ ] Go to Network tab
+[ ] Play a movie/series
+[ ] Check the URL in Network tab:
+    - Does it go DIRECTLY to provider (line.dndnscloud.ru)?
+    - Or does it still use /proxy/ routes?
+
+Provider IP Check:
+[ ] Open your IPTV provider admin panel in browser
+[ ] Go to Connection Logs / Active Connections
+[ ] Look for recent connections
+[ ] Does it show YOUR IP address (home IP)?
+[ ] Or does it still show VPS IP (212.237.218.180)?
+
+Performance Comparison:
+[ ] Is startup faster than web app?
+[ ] Is video playback smoother?
+[ ] Is there less buffering?
+[ ] Is navigation more responsive?
+
+MKV Audio Test:
+[ ] Find a movie with MKV extension and E-AC3/DTS audio
+[ ] Play it in web browser (https://m2player.ru) - note if audio plays
+[ ] Play it in Electron app - note if audio plays
+[ ] Compare results
+
+WHAT SUCCESS LOOKS LIKE:
+======================
+
+✅ Direct URLs: Network tab shows requests to line.dndnscloud.ru
+✅ Your IP: Provider panel shows your home IP, not VPS IP
+✅ Better performance: Faster/smoother than web app
+✅ MKV audio works: Files that were silent in browser have sound in Electron
+
+WHAT FAILURE LOOKS LIKE:
+======================
+
+❌ Still using proxy: Network tab shows /proxy/ routes
+❌ Still VPS IP: Provider panel shows 212.237.218.180
+❌ Worse performance: Slower or buggier than web app
+❌ MKV still silent: Audio still doesn't play
+
+DECISION MATRIX:
+================
+
+If ALL success criteria met:
+→ BUILD FULL WINDOWS APP
+- Add proper installer
+- Add direct/proxy toggle
+- Add auto-update
+- Add branding
+
+If ANY failure criteria met:
+→ STICK WITH WEB APP
+- Focus on FFmpeg transcoding
+- Improve EPG
+- Improve search
+- Don't waste time on desktop app
+
+COMMON ISSUES:
+==============
+
+Q: "Electron window opens but blank screen"
+A: web app not built - run: cd .. && npm run build
+
+Q: "Can't login"
+A: Check Network tab in DevTools - are API requests going through?
+
+Q: "Video won't play"
+A: Check Console for errors - is it trying to use /proxy/ routes?
+
+Q: "Still seeing VPS IP in provider panel"
+A: This means it's still using proxy - need to modify Watch.tsx
+
+Q: "MKV audio still silent"
+A: Desktop apps may not support E-AC3/DTS either - still need FFmpeg
+
+NEXT STEPS AFTER TEST:
+======================
+
+After you complete the testing:
+1. Note which checks passed/failed
+2. Record your observations
+3. Decide: Proceed with Windows app or stick with web app?
+4. Share results and we'll plan next steps accordingly
+
+IMPORTANT REMINDER:
+==================
+This is a PROTOTYPE to TEST the concept.
+It's not a finished product yet.
+The goal is to decide IF we should build a real Windows app.
+
+Testing should take 15-30 minutes.
+Focus on the key questions:
+1. Does direct access work?
+2. Is it better than web?
+3. Is it worth building full app?
+
+Good luck with testing!
+===================

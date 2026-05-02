@@ -1,0 +1,116 @@
+Electron Prototype Setup Guide (Windows 11)
+==========================================
+
+PROBLEM:
+Network issues preventing automatic Electron installation via npm.
+
+SOLUTION:
+Manual installation steps for Windows.
+
+STEP 1: Install Node.js (if not already installed)
+-----------------------------------------------
+1. Download Node.js LTS from: https://nodejs.org/
+2. Run the installer (v20.x or v22.x LTS recommended)
+3. After installation, open Command Prompt
+4. Verify: node --version
+
+STEP 2: Install Electron Globally
+---------------------------------
+1. Open Command Prompt as Administrator
+2. Navigate to project directory:
+   cd C:\iptv-player-github-review\electron-prototype
+3. Install Electron globally:
+   npm install -g electron
+   (If this fails, try: npm install -g electron --registry=https://registry.npmmirror.com)
+4. Verify: electron --version
+
+STEP 3: Verify Web App Build
+-----------------------------
+1. Check if dist folder exists:
+   cd C:\iptv-player-github-review
+   dir dist
+2. If dist folder doesn't exist or is old, build:
+   npm run build
+
+STEP 4: Run Electron Prototype
+-----------------------------
+1. Navigate to electron-prototype:
+   cd C:\iptv-player-github-review\electron-prototype
+2. Run Electron:
+   electron .
+3. The app should open in an Electron window
+
+STEP 5: Testing Checklist
+------------------------
+Once the app opens, test:
+
+✅ App opens successfully
+✅ Login with your IPTV credentials works
+✅ Live TV channel plays
+✅ Movie plays (try a problematic MKV file)
+✅ Series episode plays
+✅ Check IPTV provider panel - does it show YOUR IP instead of VPS IP?
+✅ Compare video quality to web browser
+✅ Is the experience better or worse?
+
+WHAT TO LOOK FOR:
+-----------------
+1. **Direct Network Access**: Check Network tab in DevTools (opens automatically)
+   - Requests should go DIRECTLY to your IPTV provider (line.dndnscloud.ru)
+   - NOT through /proxy/ routes
+   - This proves CORS bypass is working
+
+2. **Provider IP**: Check your IPTV provider admin panel
+   - Should see YOUR IP address, not 212.237.218.180 (VPS IP)
+   - This proves direct connection is working
+
+3. **MKV Audio**: Test the same MKV file that was silent in browser
+   - If audio plays: Native desktop app handles codecs better
+   - If audio still silent: May still need FFmpeg transcoding
+
+4. **Performance**: Compare to web app
+   - Faster startup?
+   - Smoother playback?
+   - Less buffering?
+
+TROUBLESHOOTING:
+----------------
+Q: "electron: command not found"
+A: Close Command Prompt, reopen as Administrator, try installing again
+
+Q: "Failed to load dist/index.html"
+A: Build the web app: npm run build (from main directory)
+
+Q: "App opens but blank screen"
+A: Check Console in DevTools for errors, ensure dist folder is built
+
+Q: "Still using /proxy/ URLs"
+A: This is expected for the first test - we're just verifying the app loads
+
+NEXT STEPS AFTER TEST:
+---------------------
+If test passes:
+✅ We'll build proper Windows Electron app with:
+   - Direct/proxy mode toggle
+   - Windows installer
+   - Auto-update
+   - App icon and branding
+
+If test fails:
+❌ We'll stick with web app and focus on:
+   - FFmpeg transcoding completion
+   - EPG improvements
+   - Search enhancements
+
+CONTACT:
+--------
+If you have any issues during setup, note the error message and
+which step you're on.
+
+IMPORTANT NOTES:
+--------------
+- This is a PROTOTYPE, not a final app
+- DevTools open automatically for debugging
+- Web security is disabled (bypasses CORS)
+- No installer yet - just testing concept
+- App is read-only - doesn't modify your web app

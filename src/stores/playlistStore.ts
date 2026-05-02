@@ -75,6 +75,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
           name: record.name,
           url: record.url,
           createdAt: record.createdAt,
+          isActive: record.isActive,
         })
       } else if (record.type === 'xtream') {
         if (!record.serverUrlEncrypted || !record.usernameEncrypted || !record.passwordEncrypted) {
@@ -89,6 +90,7 @@ export const usePlaylistStore = create<PlaylistStore>((set, get) => ({
           password: await decryptString(record.passwordEncrypted),
           createdAt: record.createdAt,
           expDate: record.expDate ?? null,
+          isActive: record.isActive,
         })
       }
     }

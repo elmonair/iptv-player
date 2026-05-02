@@ -1,0 +1,12 @@
+{
+  "apps": [{
+    "name": "m2player",
+    "script": "server.js",
+    "cwd": "/home/m2player/htdocs/m2player.ru",
+    "interpreter": "/home/m2player/.nvm/versions/node/v22.22.2/bin/node",
+    "instances": 1,
+    "autorestart": true,
+    "watch": false,
+    "max_memory_restart": "500M"
+  }]
+}

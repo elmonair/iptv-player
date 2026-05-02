@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Film, Tv, Clapperboard, Settings, User, Info, Plus, RefreshCw, Trash2, CheckCircle, Clock, Play } from 'lucide-react'
+import { Film, Tv, Clapperboard, Settings, Plus, RefreshCw, Trash2, CheckCircle, Clock, Play } from 'lucide-react'
 import { TopNavBar } from '../components/TopNavBar'
 import { AddPlaylistModal } from '../components/AddPlaylistModal'
 import { EditPlaylistModal } from '../components/EditPlaylistModal'
@@ -52,64 +52,39 @@ export default function HomePage() {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-8 space-y-8 sm:space-y-10">
 
-        {/* Welcome Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Welcome Card */}
-          <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
-            <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">
-              Welcome back, {activeSource?.name || 'User'}!
-            </h1>
-            <p className="text-slate-400 text-base mb-1">Your playlist: {activeSource?.name}</p>
-            <p className="text-slate-500 text-sm truncate mb-4">
-              {activeSource?.type === 'xtream' ? activeSource.serverUrl : activeSource?.url || ''}
-            </p>
-            <button
-              onClick={() => navigate('/playlists')}
-              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
-            >
-              Manage Playlists
-            </button>
-          </div>
+        <section className="bg-slate-800 rounded-xl border border-slate-700 p-6">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="flex items-center gap-1 text-green-400 text-sm font-medium">
+                  <CheckCircle size={16} />
+                  Active Playlist
+                </span>
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-bold text-white mb-2">
+                {activeSource?.name || 'Your Playlist'}
+              </h1>
+              <p className="text-slate-400 text-base mb-1">Ready for Live TV, Movies, and Series</p>
+              <p className="text-slate-500 text-sm truncate">
+                {activeSource?.type === 'xtream' ? activeSource.serverUrl : activeSource?.url || ''}
+              </p>
+            </div>
 
-          {/* Subscription Card */}
-          <div className="bg-slate-800 rounded-xl p-6 border border-slate-700">
-            <div className="flex items-center gap-2 mb-4">
-              <h2 className="text-lg font-semibold text-white">Subscription Info</h2>
-              <span className="flex items-center gap-1 text-green-400 text-sm">
-                <CheckCircle size={16} />
-                Active
-              </span>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <div className="text-center p-3 bg-slate-900 rounded-lg">
-                <p className="text-2xl font-bold text-yellow-500">
-                  {counts?.channels?.toLocaleString() ?? '-'}
-                </p>
-                <p className="text-xs sm:text-sm text-slate-400 mt-1">Channels</p>
-              </div>
-              <div className="text-center p-3 bg-slate-900 rounded-lg">
-                <p className="text-2xl font-bold text-yellow-500">
-                  {counts?.movies?.toLocaleString() ?? '-'}
-                </p>
-                <p className="text-xs sm:text-sm text-slate-400 mt-1">Movies</p>
-              </div>
-              <div className="text-center p-3 bg-slate-900 rounded-lg">
-                <p className="text-2xl font-bold text-yellow-500">
-                  {counts?.series?.toLocaleString() ?? '-'}
-                </p>
-                <p className="text-xs sm:text-sm text-slate-400 mt-1">Series</p>
-              </div>
+            <div className="grid grid-cols-3 gap-3 lg:min-w-[320px]">
+              <StatCard label="Channels" value={counts?.channels?.toLocaleString() ?? '-'} />
+              <StatCard label="Movies" value={counts?.movies?.toLocaleString() ?? '-'} />
+              <StatCard label="Series" value={counts?.series?.toLocaleString() ?? '-'} />
             </div>
           </div>
-        </div>
+        </section>
 
         {/* Continue Watching */}
         <ContinueWatchingSection navigate={navigate} />
 
         {/* Quick Actions */}
         <div>
-          <h2 className="text-xl font-semibold text-white mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+          <h2 className="text-xl font-semibold text-white mb-4">Start Watching</h2>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
             <QuickActionButton
               icon={<Tv size={24} />}
               label="Live TV"
@@ -127,18 +102,8 @@ export default function HomePage() {
             />
             <QuickActionButton
               icon={<Settings size={24} />}
-              label="Settings"
-              onClick={() => navigate('/settings')}
-            />
-            <QuickActionButton
-              icon={<User size={24} />}
-              label="Profile"
-              onClick={() => {}}
-            />
-            <QuickActionButton
-              icon={<Info size={24} />}
-              label="About"
-              onClick={() => {}}
+              label="Playlists"
+              onClick={() => setShowAddPlaylist(true)}
             />
           </div>
         </div>
@@ -146,10 +111,10 @@ export default function HomePage() {
         {/* Playlist Management */}
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl font-semibold text-white">Your Playlists</h2>
+            <h2 className="text-xl font-semibold text-white">Manage Playlists</h2>
             <button
               onClick={() => setShowAddPlaylist(true)}
-              className="flex items-center gap-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-400 text-black text-sm font-semibold rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-yellow-500/50"
+              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-semibold rounded-lg transition-colors focus:outline-none focus:ring-4 focus:ring-indigo-500/50"
             >
               <Plus size={18} />
               Add New
@@ -206,9 +171,18 @@ function QuickActionButton({ icon, label, onClick }: QuickActionButtonProps) {
       onClick={onClick}
       className="flex flex-col items-center justify-center gap-2 p-4 sm:p-6 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-xl transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[100px]"
     >
-      <div className="text-yellow-500">{icon}</div>
+      <div className="text-indigo-400">{icon}</div>
       <span className="text-sm font-medium text-white">{label}</span>
     </button>
+  )
+}
+
+function StatCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="text-center p-3 bg-slate-900 rounded-lg border border-slate-700/60">
+      <p className="text-2xl font-bold text-yellow-500">{value}</p>
+      <p className="text-xs sm:text-sm text-slate-400 mt-1">{label}</p>
+    </div>
   )
 }
 
