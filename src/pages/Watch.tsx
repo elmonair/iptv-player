@@ -1356,12 +1356,14 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                         <div className="flex items-center gap-2 mb-2">
                           <span className="text-xs text-white/60 w-10 text-right">0:00</span>
                           <div
-                            className="flex-1 h-1.5 bg-white/20 rounded-full cursor-pointer relative group"
+                            className="flex-1 h-6 bg-white/20 rounded-full cursor-pointer relative group"
                             onClick={(e) => {
                               const rect = e.currentTarget.getBoundingClientRect()
                               const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-                              const targetTime = pct * (realDuration || videoRef.current?.duration || 0)
-                              if (targetTime > 0 && videoRef.current) {
+                              const duration = realDuration || videoRef.current?.duration || 0
+                              const targetTime = pct * duration
+                              console.log('[Watch] Seek click:', { pct, targetTime, duration, realDuration })
+                              if (videoRef.current) {
                                 videoRef.current.currentTime = targetTime
                               }
                             }}
@@ -1369,12 +1371,12 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                             <div className="absolute inset-0 bg-white/10 rounded-full" />
                             <div
                               id="watch-buffered-bar"
-                              className="absolute left-0 top-0 h-full bg-white/30 rounded-full"
+                              className="absolute left-0 top-0 h-full bg-white/30 rounded-full pointer-events-none"
                               style={{ width: '0%' }}
                             />
                             <div
                               id="watch-progress-bar"
-                              className="absolute left-0 top-0 h-full bg-indigo-500 rounded-full"
+                              className="absolute left-0 top-0 h-full bg-indigo-500 rounded-full pointer-events-none"
                               style={{ width: '0%' }}
                             />
                           </div>
