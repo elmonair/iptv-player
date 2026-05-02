@@ -794,9 +794,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       }
     } else {
       // Movie — use HLS.js for m3u8 streams, native for others
-      setupVideoSource(videoEl, streamUrl)
-
       const movieId = (item.data as MovieRecord).id
+
       let savedProgress: { position: number } | null = null
       try {
         const dbRecord = await db.watchHistory.where('id').equals(`movie:${movieId}`).first()
@@ -807,6 +806,51 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       } catch (err) {
         console.error('[Watch] Failed to query watch history:', err)
       }
+
+      if (savedProgress && savedProgress.position > 30) {
+        const source = usePlaylistStore.getState().getActiveSource()
+        if (source && source.type === 'xtream') {
+          const { id: streamId, type: transcodeType } = extractStreamId(routeType, routeId, episodeId)
+          if (streamId && transcodeType) {
+            const ext = (item.data as MovieRecord).containerExtension || 'mp4'
+            const resumeUrl = buildTranscodeUrl(source, streamId, ext, transcodeType, savedProgress.position)
+            console.log('[RESUME] Starting directly with transcode URL, seek:', savedProgress.position, 'URL:', resumeUrl)
+            setSeekOffset(savedProgress.position)
+            setCurrentContainerExtension(ext)
+            setCurrentStreamUrl(resumeUrl)
+            setupVideoSource(videoEl, resumeUrl)
+            videoEl.onloadedmetadata = () => {
+              hasResumedRef.current = true
+            }
+            videoEl.oncanplay = () => {
+              if (videoEl.videoWidth && videoEl.videoHeight) {
+                setVideoInfo({ width: videoEl.videoWidth, height: videoEl.videoHeight, fps: 0 })
+              }
+            }
+            videoEl.onplaying = () => {
+              setStatus('playing')
+              startProgressTracking('movie', movieId)
+            }
+            videoEl.onerror = () => {
+              if (!currentStreamUrl) return
+              console.error('[Watch] Movie video error:', videoEl.error?.code)
+              setStatus('error')
+              setErrorMsg('Unable to play movie. Copy URL for VLC.')
+            }
+            try {
+              await videoEl.play()
+              setStatus('playing')
+            } catch (err) {
+              if (err instanceof Error && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
+                setStatus('ready-click-to-play')
+              }
+            }
+            return
+          }
+        }
+      }
+
+      setupVideoSource(videoEl, streamUrl)
 
       videoEl.onloadedmetadata = () => {
         handleLoadedMetadata(savedProgress)
