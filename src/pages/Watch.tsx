@@ -940,10 +940,21 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       }
       initRef.current = true
 
+      console.log('[Watch] Init start:', {
+        routeType,
+        routeId,
+        episodeId,
+        locationState: location.state,
+        sourceLoaded: !!getActiveSource(),
+      })
+
       try {
         const source = getActiveSource()
         setActiveSource(source)
+        console.log('[Watch] Source resolved:', source?.type, source?.name, '| id:', source?.id)
+
         if (!source || source.type !== 'xtream') {
+          console.warn('[Watch] No Xtream source, navigating to home')
           navigate('/home')
           return
         }
