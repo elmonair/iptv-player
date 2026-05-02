@@ -1311,22 +1311,9 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
                 {/* VOD CONTROLS OVERLAY - only for movies/episodes */}
                 {currentType !== 'channel' && (
-                  <div
-                    className={`absolute inset-0 flex flex-col justify-between transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
-                    style={{ pointerEvents: showControls ? 'auto' : 'none' }}
-                  >
-                    {/* Top gradient + title */}
-                    <div className="flex items-start justify-between px-4 py-3 bg-gradient-to-b from-black/80 to-transparent">
-                      <span className="text-white text-sm font-medium truncate max-w-[60%]">{itemName}</span>
-                      <div className="flex items-center gap-2 text-white text-sm font-mono">
-                        <span id="watch-current-time">0:00</span>
-                        <span className="text-white/50">/</span>
-                        <span id="watch-duration">0:00</span>
-                      </div>
-                    </div>
-
-                    {/* Center play/pause button */}
-                    <div className="absolute inset-0 flex items-center justify-center">
+                  <>
+                    {/* Center play/pause button - ALWAYS visible */}
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
                       <button
                         onClick={(e) => {
                           e.stopPropagation()
@@ -1338,7 +1325,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                             }
                           }
                         }}
-                        className="w-16 h-16 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center transition-colors"
+                        className="pointer-events-auto w-16 h-16 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center transition-colors cursor-pointer"
                       >
                         {isPlaying ? (
                           <Pause className="w-8 h-8 text-white" />
@@ -1348,128 +1335,144 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                       </button>
                     </div>
 
-                    {/* Bottom controls */}
-                    <div className="px-4 py-3 bg-gradient-to-t from-black/90 to-transparent">
-                      {/* Seek bar */}
-                      <div className="flex items-center gap-2 mb-2">
-                        <span className="text-xs text-white/60 w-10 text-right">0:00</span>
-                        <div
-                          className="flex-1 h-1.5 bg-white/20 rounded-full cursor-pointer relative group"
-                          onClick={(e) => {
-                            const rect = e.currentTarget.getBoundingClientRect()
-                            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-                            const targetTime = pct * (realDuration || videoRef.current?.duration || 0)
-                            if (targetTime > 0 && videoRef.current) {
-                              videoRef.current.currentTime = targetTime
-                            }
-                          }}
-                        >
-                          <div className="absolute inset-0 bg-white/10 rounded-full" />
-                          <div
-                            id="watch-buffered-bar"
-                            className="absolute left-0 top-0 h-full bg-white/30 rounded-full"
-                            style={{ width: '0%' }}
-                          />
-                          <div
-                            id="watch-progress-bar"
-                            className="absolute left-0 top-0 h-full bg-indigo-500 rounded-full"
-                            style={{ width: '0%' }}
-                          />
+                    {/* Rest of controls (auto-hide) */}
+                    <div
+                      className={`absolute inset-0 flex flex-col justify-between transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                      style={{ pointerEvents: showControls ? 'auto' : 'none' }}
+                    >
+                      {/* Top gradient + title */}
+                      <div className="flex items-start justify-between px-4 py-3 bg-gradient-to-b from-black/80 to-transparent">
+                        <span className="text-white text-sm font-medium truncate max-w-[60%]">{itemName}</span>
+                        <div className="flex items-center gap-2 text-white text-sm font-mono">
+                          <span id="watch-current-time">0:00</span>
+                          <span className="text-white/50">/</span>
+                          <span id="watch-duration">0:00</span>
                         </div>
-                        <span className="text-xs text-white/60 w-10">
-                          {formatTime(realDuration || videoRef.current?.duration || 0)}
-                        </span>
                       </div>
 
-                      {/* Bottom row */}
-                      <div className="flex items-center gap-3">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            if (videoRef.current) videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10)
-                          }}
-                          className="text-white/70 hover:text-white p-1"
-                          aria-label="Rewind 10s"
-                        >
-                          <SkipBack className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            if (videoRef.current) {
-                              if (videoRef.current.paused) {
-                                videoRef.current.play().catch(() => {})
-                              } else {
-                                videoRef.current.pause()
+                      {/* Bottom controls */}
+                      <div className="px-4 py-3 bg-gradient-to-t from-black/90 to-transparent">
+                        {/* Seek bar */}
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-xs text-white/60 w-10 text-right">0:00</span>
+                          <div
+                            className="flex-1 h-1.5 bg-white/20 rounded-full cursor-pointer relative group"
+                            onClick={(e) => {
+                              const rect = e.currentTarget.getBoundingClientRect()
+                              const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+                              const targetTime = pct * (realDuration || videoRef.current?.duration || 0)
+                              if (targetTime > 0 && videoRef.current) {
+                                videoRef.current.currentTime = targetTime
                               }
-                            }
-                          }}
-                          className="text-white/70 hover:text-white p-1"
-                          aria-label={isPlaying ? 'Pause' : 'Play'}
-                        >
-                          {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            if (videoRef.current) videoRef.current.currentTime = Math.min(realDuration || videoRef.current.duration || 0, videoRef.current.currentTime + 10)
-                          }}
-                          className="text-white/70 hover:text-white p-1"
-                          aria-label="Forward 10s"
-                        >
-                          <SkipForward className="w-5 h-5" />
-                        </button>
-                        <div className="flex items-center gap-2 ml-2">
+                            }}
+                          >
+                            <div className="absolute inset-0 bg-white/10 rounded-full" />
+                            <div
+                              id="watch-buffered-bar"
+                              className="absolute left-0 top-0 h-full bg-white/30 rounded-full"
+                              style={{ width: '0%' }}
+                            />
+                            <div
+                              id="watch-progress-bar"
+                              className="absolute left-0 top-0 h-full bg-indigo-500 rounded-full"
+                              style={{ width: '0%' }}
+                            />
+                          </div>
+                          <span className="text-xs text-white/60 w-10">
+                            {formatTime(realDuration || videoRef.current?.duration || 0)}
+                          </span>
+                        </div>
+
+                        {/* Bottom row */}
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (videoRef.current) videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10)
+                            }}
+                            className="text-white/70 hover:text-white p-1"
+                            aria-label="Rewind 10s"
+                          >
+                            <SkipBack className="w-5 h-5" />
+                          </button>
                           <button
                             onClick={(e) => {
                               e.stopPropagation()
                               if (videoRef.current) {
-                                videoRef.current.muted = !videoRef.current.muted
-                                setIsMuted(videoRef.current.muted)
+                                if (videoRef.current.paused) {
+                                  videoRef.current.play().catch(() => {})
+                                } else {
+                                  videoRef.current.pause()
+                                }
                               }
                             }}
                             className="text-white/70 hover:text-white p-1"
-                            aria-label={isMuted ? 'Unmute' : 'Mute'}
+                            aria-label={isPlaying ? 'Pause' : 'Play'}
                           >
-                            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                            {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
                           </button>
-                          <input
-                            type="range"
-                            min="0"
-                            max="1"
-                            step="0.01"
-                            value={isMuted ? 0 : volume}
-                            onChange={(e) => {
-                              const v = parseFloat(e.target.value)
-                              setVolume(v)
-                              if (videoRef.current) {
-                                videoRef.current.volume = v
-                                videoRef.current.muted = v === 0
-                                setIsMuted(v === 0)
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (videoRef.current) videoRef.current.currentTime = Math.min(realDuration || videoRef.current.duration || 0, videoRef.current.currentTime + 10)
+                            }}
+                            className="text-white/70 hover:text-white p-1"
+                            aria-label="Forward 10s"
+                          >
+                            <SkipForward className="w-5 h-5" />
+                          </button>
+                          <div className="flex items-center gap-2 ml-2">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (videoRef.current) {
+                                  videoRef.current.muted = !videoRef.current.muted
+                                  setIsMuted(videoRef.current.muted)
+                                }
+                              }}
+                              className="text-white/70 hover:text-white p-1"
+                              aria-label={isMuted ? 'Unmute' : 'Mute'}
+                            >
+                              {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                            </button>
+                            <input
+                              type="range"
+                              min="0"
+                              max="1"
+                              step="0.01"
+                              value={isMuted ? 0 : volume}
+                              onChange={(e) => {
+                                const v = parseFloat(e.target.value)
+                                setVolume(v)
+                                if (videoRef.current) {
+                                  videoRef.current.volume = v
+                                  videoRef.current.muted = v === 0
+                                  setIsMuted(v === 0)
+                                }
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-20 h-1 accent-indigo-500 cursor-pointer"
+                            />
+                          </div>
+                          <div className="flex-1" />
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (!document.fullscreenElement) {
+                                document.documentElement.requestFullscreen().catch(() => {})
+                              } else {
+                                document.exitFullscreen().catch(() => {})
                               }
                             }}
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-20 h-1 accent-indigo-500 cursor-pointer"
-                          />
+                            className="text-white/70 hover:text-white p-1"
+                            aria-label="Toggle fullscreen"
+                          >
+                            {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+                          </button>
                         </div>
-                        <div className="flex-1" />
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            if (!document.fullscreenElement) {
-                              document.documentElement.requestFullscreen().catch(() => {})
-                            } else {
-                              document.exitFullscreen().catch(() => {})
-                            }
-                          }}
-                          className="text-white/70 hover:text-white p-1"
-                          aria-label="Toggle fullscreen"
-                        >
-                          {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-                        </button>
                       </div>
                     </div>
-                  </div>
+                  </>
                 )}
 
                 {/* Channel error overlay */}
