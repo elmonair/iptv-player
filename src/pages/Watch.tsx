@@ -468,10 +468,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     return false
   }, [])
 
-  const playEpisode = useCallback(async (episodeInfo: EpisodeInfo) => {
+  const playEpisode = useCallback(async (episodeInfo: EpisodeInfo, overrideSource?: Awaited<ReturnType<typeof getActiveSource>> | null) => {
     if (!videoRef.current) return
 
-    const source = activeSource
+    const source = overrideSource || activeSource
     if (!source || source.type !== 'xtream') return
 
     destroyPlayer()
@@ -1217,7 +1217,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
             setRealDuration((episodeState as EpisodeInfo).realDuration!)
           }
 
-          await playEpisode(episodeState)
+          await playEpisode(episodeState, source)
           initRef.current = false
           return
         }
@@ -2011,7 +2011,7 @@ setSeekOffset(target)
                         ref={isActive ? activeItemRef : null}
 onClick={() => {
                           if (item.type === 'episode') {
-                            playEpisode(item.data as EpisodeInfo)
+                            playEpisode(item.data as EpisodeInfo, activeSource)
                           } else {
                             zapTo(item.data.id)
                           }
