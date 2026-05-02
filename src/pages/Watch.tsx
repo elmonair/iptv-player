@@ -520,10 +520,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const zapTo = useCallback(async (targetItemId: string) => {
     if (!targetItemId || !videoRef.current) return
 
-    const source = activeSource
-    console.log('[zapTo] called with:', targetItemId, '| activeSource:', source?.type, source?.name, '| id:', source?.id)
+    const source = usePlaylistStore.getState().getActiveSource()
+    console.log('[zapTo] called with:', targetItemId, '| source from store:', source?.type, source?.name, '| id:', source?.id)
     if (!source || source.type !== 'xtream') {
-      console.warn('[zapTo] FAIL - no valid Xtream source, activeSource:', source)
+      console.warn('[zapTo] FAIL - no valid Xtream source, source:', source)
       return
     }
 
