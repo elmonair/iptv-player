@@ -1353,21 +1353,25 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                       {/* Bottom controls */}
                       <div className="px-4 py-3 bg-gradient-to-t from-black/90 to-transparent">
                         {/* Seek bar */}
-                        <div className="flex items-center gap-2 mb-2">
-                          <span className="text-xs text-white/60 w-10 text-right">0:00</span>
-                          <div
-                            className="flex-1 h-6 bg-white/20 rounded-full cursor-pointer relative group"
-                            onClick={(e) => {
-                              const rect = e.currentTarget.getBoundingClientRect()
-                              const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-                              const duration = realDuration || videoRef.current?.duration || 0
-                              const targetTime = pct * duration
-                              console.log('[Watch] Seek click:', { pct, targetTime, duration, realDuration })
-                              if (videoRef.current) {
-                                videoRef.current.currentTime = targetTime
-                              }
-                            }}
-                          >
+                        <div
+                          className="flex items-center gap-2 mb-2 py-2 cursor-pointer"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            console.log('[SEEK] Click event fired!')
+                            console.log('[SEEK] event:', e.type, e.clientX)
+                            const rect = e.currentTarget.getBoundingClientRect()
+                            console.log('[SEEK] rect:', JSON.stringify({ left: rect.left, top: rect.top, width: rect.width, height: rect.height }))
+                            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+                            const duration = realDuration || videoRef.current?.duration || 0
+                            const targetTime = pct * duration
+                            console.log('[SEEK] target:', targetTime, 'percent:', pct, 'duration:', duration, 'realDuration:', realDuration)
+                            if (videoRef.current) {
+                              videoRef.current.currentTime = targetTime
+                            }
+                          }}
+                        >
+                          <span className="text-xs text-white/60 w-10 text-right select-none">0:00</span>
+                          <div className="flex-1 h-1.5 bg-white/20 rounded-full relative group">
                             <div className="absolute inset-0 bg-white/10 rounded-full" />
                             <div
                               id="watch-buffered-bar"
@@ -1380,7 +1384,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                               style={{ width: '0%' }}
                             />
                           </div>
-                          <span className="text-xs text-white/60 w-10">
+                          <span className="text-xs text-white/60 w-10 select-none">
                             {formatTime(realDuration || videoRef.current?.duration || 0)}
                           </span>
                         </div>
