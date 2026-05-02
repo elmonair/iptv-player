@@ -211,18 +211,26 @@ app.use('/transcode/:type/:streamId', async (req, res) => {
 
   ffmpegArgs.push('-i', upstreamUrl);
 
+  let hasVideoCopy = false
   if (audioTrack !== null && audioTrack !== undefined) {
     ffmpegArgs.push('-map', `0:${audioTrack}`, '-map', '0:v:0');
+    if (subtitleTrack && subtitleTrack !== 'none') {
+      ffmpegArgs.push('-map', `0:${subtitleTrack}`);
+    }
   } else {
     ffmpegArgs.push('-c:v', 'copy');
+    hasVideoCopy = true;
   }
 
   ffmpegArgs.push('-c:a', 'aac', '-b:a', '192k', '-ac', '2');
 
   if (subtitleTrack && subtitleTrack !== 'none') {
-    ffmpegArgs.splice(ffmpegArgs.indexOf('-c:v'), 1);
+    if (hasVideoCopy) {
+      ffmpegArgs.splice(ffmpegArgs.indexOf('-c:v'), 1);
+    }
     ffmpegArgs.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23');
-    ffmpegArgs.push('-vf', `subtitles='${upstreamUrl}:si=${subtitleTrack}`);
+    const safeUrl = upstreamUrl.replace(/'/g, "'\\''")
+    ffmpegArgs.push('-vf', `subtitles='${safeUrl}:si=${subtitleTrack}'`);
   }
 
   ffmpegArgs.push(
