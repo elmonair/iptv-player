@@ -126,6 +126,7 @@ export default function Watch() {
   const navigate = useNavigate()
   const location = useLocation()
   const videoRef = useRef<HTMLVideoElement>(null)
+  const videoContainerRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<ReturnType<typeof mpegts.createPlayer> | null>(null)
   const hlsRef = useRef<Hls | null>(null)
   const currentStreamUrlRef = useRef<string>('')
@@ -834,10 +835,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   }, [destroyPlayer, getWatchHistory, startProgressTracking, handleLoadedMetadata, setLastChannelId, clearChannelErrorTimeout, clearAutoAdvanceTimer])
 
   const handleFullscreenToggle = useCallback(() => {
-    const videoContainer = videoRef.current?.parentElement
-    if (!videoContainer) return
+    const container = videoContainerRef.current
+    if (!container) return
     if (!document.fullscreenElement) {
-      videoContainer.requestFullscreen?.().catch(() => {})
+      container.requestFullscreen?.().catch(() => {})
     } else {
       document.exitFullscreen?.().catch(() => {})
     }
@@ -1327,6 +1328,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
             {/* Video Container - flex-1 to take remaining space */}
             <div className="flex-1 min-h-0 overflow-hidden p-2">
               <div
+                ref={videoContainerRef}
                 className="relative w-full h-full flex items-center justify-center bg-black rounded border-slate-700"
                 onMouseMove={currentType !== 'channel' ? resetControlsTimer : undefined}
                 onMouseLeave={currentType !== 'channel' ? () => { if (videoRef.current && !videoRef.current.paused) setShowControls(false) } : undefined}
@@ -1382,28 +1384,30 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                 {/* VOD CONTROLS OVERLAY - only for movies/episodes */}
                 {currentType !== 'channel' && (
                   <>
-                    {/* Center play/pause button - ALWAYS visible */}
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          if (videoRef.current) {
-                            if (videoRef.current.paused) {
-                              videoRef.current.play().catch(() => {})
-                            } else {
-                              videoRef.current.pause()
+                    {/* Center play/pause button - visible when paused or controls shown */}
+                    {(!isPlaying || showControls) && (
+                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-30">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (videoRef.current) {
+                              if (videoRef.current.paused) {
+                                videoRef.current.play().catch(() => {})
+                              } else {
+                                videoRef.current.pause()
+                              }
                             }
-                          }
-                        }}
-                        className="pointer-events-auto w-16 h-16 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center transition-colors cursor-pointer"
-                      >
-                        {isPlaying ? (
-                          <Pause className="w-8 h-8 text-white" />
-                        ) : (
-                          <Play className="w-8 h-8 text-white ml-1" />
-                        )}
-                      </button>
-                    </div>
+                          }}
+                          className={`pointer-events-auto w-16 h-16 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center transition-all duration-300 cursor-pointer ${isPlaying && showControls ? 'opacity-60' : 'opacity-100'}`}
+                        >
+                          {isPlaying ? (
+                            <Pause className="w-8 h-8 text-white" />
+                          ) : (
+                            <Play className="w-8 h-8 text-white ml-1" />
+                          )}
+                        </button>
+                      </div>
+                    )}
 
                     {/* Rest of controls (auto-hide) */}
                     <div
@@ -1437,13 +1441,23 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                               if (!source || source.type !== 'xtream') return
                               const { id: streamId, type: transcodeType } = extractStreamId(routeType, routeId, episodeId)
                               if (!streamId || !transcodeType) return
+
+                              console.log('=== SEEK START ===')
+                              console.log('[SEEK] Target:', target, 'pct:', pct, 'duration:', displayDur)
+                              console.log('[SEEK] Current video src:', videoRef.current.src)
+                              console.log('[SEEK] Video readyState:', videoRef.current.readyState)
+                              console.log('[SEEK] Seekable ranges:', videoRef.current.seekable?.length)
+                              console.log('[SEEK] Container ext:', currentContainerExtension)
+                              console.log('[SEEK] StreamId:', streamId, 'transcodeType:', transcodeType)
+
                               const transcodeUrl = buildTranscodeUrl(source, streamId, currentContainerExtension, transcodeType, target)
-                              console.log('[SEEK] Switching to transcode URL with seek:', target, 'URL:', transcodeUrl)
+                              console.log('[SEEK] New transcode URL:', transcodeUrl)
+
                               setSeekOffset(target)
                               setCurrentStreamUrl(transcodeUrl)
                               videoRef.current.src = transcodeUrl
                               videoRef.current.load()
-                              videoRef.current.play().catch(() => {})
+                              videoRef.current.play().catch((err) => console.error('[SEEK] Play failed:', err))
                             }
                             const doSeekWrapper = (ev: MouseEvent) => { ev.stopPropagation(); doSeek(ev) }
                             const onUp = () => {
