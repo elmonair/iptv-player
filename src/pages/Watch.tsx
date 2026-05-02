@@ -98,14 +98,27 @@ function needsTranscode(ext: string): boolean {
   return TRANSCODE_EXTENSIONS.includes(lower) && !DIRECT_PLAY_EXTENSIONS.includes(lower)
 }
 
-function buildTranscodeUrl(source: { id: string; serverUrl: string; username: string; password: string }, streamId: string, ext: string, type: 'movie' | 'series'): string {
+function buildTranscodeUrl(source: { id: string; serverUrl: string; username: string; password: string }, streamId: string, ext: string, type: 'movie' | 'series', seek?: number): string {
   const params = new URLSearchParams({
     serverUrl: source.serverUrl,
     username: source.username,
     password: source.password,
     ext,
   })
+  if (seek !== undefined) {
+    params.set('seek', String(Math.floor(seek)))
+  }
   return `/transcode/${type}/${encodeURIComponent(streamId)}?${params.toString()}`
+}
+
+function extractStreamId(routeType: string | null, routeId: string | undefined, episodeId: string | undefined): { id: string; type: 'movie' | 'series' | null } {
+  if (routeType === 'movie' && routeId) {
+    const match = routeId.match(/movie-(\d+)/)
+    if (match) return { id: match[1], type: 'movie' }
+  } else if (routeType === 'episode' && episodeId) {
+    return { id: episodeId, type: 'series' }
+  }
+  return { id: '', type: null }
 }
 
 export default function Watch() {
@@ -148,6 +161,7 @@ export default function Watch() {
   const [activeSource, setActiveSource] = useState<Awaited<ReturnType<typeof getActiveSource>> | null>(null)
   const [lastVideoErrorCode, setLastVideoErrorCode] = useState<number | null>(null)
 const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
+  const [currentContainerExtension, setCurrentContainerExtension] = useState<string>('mp4')
   const [autoAdvanceSeconds, setAutoAdvanceSeconds] = useState<number | null>(null)
   const [channelEpg, setChannelEpg] = useState<Record<string, EpgProgram | null>>({})
   const [realDuration, setRealDuration] = useState<number>(0)
@@ -262,7 +276,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     progressIntervalRef.current = setInterval(saveProgress, 10000)
   }, [activeSource, updateWatchProgress])
 
-  const handleLoadedMetadata = useCallback((savedProgress?: { position: number } | null) => {
+  const handleLoadedMetadata = useCallback(async (savedProgress?: { position: number } | null) => {
     if (hasResumedRef.current) return
     if (!videoRef.current) return
 
@@ -270,12 +284,26 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     const saved = savedProgress?.position || 0
     const duration = videoEl.duration
 
-    if (saved > 5 && Number.isFinite(duration) && saved < duration * 0.9) {
-      videoEl.currentTime = saved
+    if (saved > 30 && Number.isFinite(duration) && saved < duration * 0.9) {
+      const source = activeSource
+      if (source && source.type === 'xtream') {
+        const { id: streamId, type: transcodeType } = extractStreamId(routeType, routeId, episodeId)
+        if (streamId && transcodeType) {
+          const transcodeUrl = buildTranscodeUrl(source, streamId, currentContainerExtension, transcodeType, saved)
+          console.log('[RESUME] Switching to transcode URL with saved position:', saved, 'URL:', transcodeUrl)
+          setSeekOffset(saved)
+          setCurrentStreamUrl(transcodeUrl)
+          videoEl.src = transcodeUrl
+          videoEl.load()
+          videoEl.play().catch(() => {})
+          hasResumedRef.current = true
+          return
+        }
+      }
     }
 
     hasResumedRef.current = true
-  }, [])
+  }, [activeSource, routeType, routeId, episodeId, currentContainerExtension])
 
   const stopProgressTracking = useCallback(() => {
     if (progressIntervalRef.current) {
@@ -437,6 +465,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setItemName(episodeName)
     setCurrentItemId(`episode_${episodeInfo.streamId}`)
     setCurrentType('episode')
+    setCurrentContainerExtension(episodeInfo.containerExtension || 'mkv')
     setStatus('loading')
     setErrorMsg(null)
     setLastVideoErrorCode(null)
@@ -575,6 +604,9 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setItemName(getItemName(item))
     setCurrentItemId(item.data.id)
     setCurrentType(item.type)
+    if (item.type === 'movie') {
+      setCurrentContainerExtension((item.data as MovieRecord).containerExtension || 'mp4')
+    }
     setStatus('loading')
     setErrorMsg(null)
     setLastVideoErrorCode(null)
@@ -810,6 +842,23 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       document.exitFullscreen?.().catch(() => {})
     }
   }, [])
+
+  const handleSkip = useCallback((seconds: number) => {
+    if (!videoRef.current) return
+    const source = activeSource
+    if (!source || source.type !== 'xtream') return
+    const { id: streamId, type: transcodeType } = extractStreamId(routeType, routeId, episodeId)
+    if (!streamId || !transcodeType) return
+    const displayDur = realDuration || videoRef.current?.duration || 0
+    const newTime = Math.max(0, Math.min(displayDur, currentTime + seconds))
+    const transcodeUrl = buildTranscodeUrl(source, streamId, currentContainerExtension, transcodeType, newTime)
+    console.log('[SKIP] Switching to transcode URL with skip:', newTime, 'URL:', transcodeUrl)
+    setSeekOffset(newTime)
+    setCurrentStreamUrl(transcodeUrl)
+    videoRef.current.src = transcodeUrl
+    videoRef.current.load()
+    videoRef.current.play().catch(() => {})
+  }, [activeSource, routeType, routeId, episodeId, realDuration, currentTime, currentContainerExtension])
 
   const handlePrevChannel = useCallback(() => {
     clearAutoAdvanceTimer()
@@ -1383,19 +1432,18 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                               const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
                               const displayDur = realDuration || videoRef.current?.duration || 0
                               const target = pct * displayDur
-                              console.log('[SEEK] drag target:', target, 'pct:', pct, 'isTranscoded:', needsTranscode(videoRef.current?.src?.split('.').pop() || ''))
                               if (!videoRef.current) return
-                              const ext = videoRef.current?.src?.split('.').pop() || ''
-                              if (needsTranscode(ext)) {
-                                const baseUrl = (videoRef.current.src || '').split('?')[0]
-                                const seekUrl = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}seek=${Math.floor(target)}`
-                                setSeekOffset(target)
-                                videoRef.current.src = seekUrl
-                                videoRef.current.load()
-                                videoRef.current.play().catch(() => {})
-                              } else {
-                                videoRef.current.currentTime = target
-                              }
+                              const source = activeSource
+                              if (!source || source.type !== 'xtream') return
+                              const { id: streamId, type: transcodeType } = extractStreamId(routeType, routeId, episodeId)
+                              if (!streamId || !transcodeType) return
+                              const transcodeUrl = buildTranscodeUrl(source, streamId, currentContainerExtension, transcodeType, target)
+                              console.log('[SEEK] Switching to transcode URL with seek:', target, 'URL:', transcodeUrl)
+                              setSeekOffset(target)
+                              setCurrentStreamUrl(transcodeUrl)
+                              videoRef.current.src = transcodeUrl
+                              videoRef.current.load()
+                              videoRef.current.play().catch(() => {})
                             }
                             const doSeekWrapper = (ev: MouseEvent) => { ev.stopPropagation(); doSeek(ev) }
                             const onUp = () => {
@@ -1428,41 +1476,41 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
                         {/* Bottom row */}
                         <div className="flex items-center gap-3">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (videoRef.current) videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10)
-                            }}
-                            className="text-white/70 hover:text-white p-1"
-                            aria-label="Rewind 10s"
-                          >
-                            <SkipBack className="w-5 h-5" />
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (videoRef.current) {
-                                if (videoRef.current.paused) {
-                                  videoRef.current.play().catch(() => {})
-                                } else {
-                                  videoRef.current.pause()
-                                }
-                              }
-                            }}
-                            className="text-white/70 hover:text-white p-1"
-                            aria-label={isPlaying ? 'Pause' : 'Play'}
-                          >
-                            {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
-                          </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (videoRef.current) videoRef.current.currentTime = Math.min(realDuration || videoRef.current.duration || 0, videoRef.current.currentTime + 10)
-                            }}
-                            className="text-white/70 hover:text-white p-1"
-                            aria-label="Forward 10s"
-                          >
-                            <SkipForward className="w-5 h-5" />
+<button
+                             onClick={(e) => {
+                               e.stopPropagation()
+                               handleSkip(-10)
+                             }}
+                             className="text-white/70 hover:text-white p-1"
+                             aria-label="Rewind 10s"
+                           >
+                             <SkipBack className="w-5 h-5" />
+                           </button>
+                           <button
+                             onClick={(e) => {
+                               e.stopPropagation()
+                               if (videoRef.current) {
+                                 if (videoRef.current.paused) {
+                                   videoRef.current.play().catch(() => {})
+                                 } else {
+                                   videoRef.current.pause()
+                                 }
+                               }
+                             }}
+                             className="text-white/70 hover:text-white p-1"
+                             aria-label={isPlaying ? 'Pause' : 'Play'}
+                           >
+                             {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                           </button>
+                           <button
+                             onClick={(e) => {
+                               e.stopPropagation()
+                               handleSkip(10)
+                             }}
+                             className="text-white/70 hover:text-white p-1"
+                             aria-label="Forward 10s"
+                           >
+                             <SkipForward className="w-5 h-5" />
                           </button>
                           <div className="flex items-center gap-2 ml-2">
                             <button
