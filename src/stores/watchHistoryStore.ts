@@ -63,9 +63,9 @@ export const useWatchHistoryStore = create<WatchHistoryState & WatchHistoryActio
           duration,
           lastWatched: Date.now(),
         }
-        await db.watchHistory.add(newHistory)
+        await db.watchHistory.put(newHistory)
         set({ history: [...history, newHistory] })
-        console.log('[WatchHistory] Added:', itemType, itemId, 'position:', position, 'duration:', duration)
+        console.log('[WatchHistory] Saved:', itemType, itemId, 'position:', position, 'duration:', duration)
       }
     } catch (err) {
       const error = err instanceof Error ? err.message : 'Failed to update watch progress'

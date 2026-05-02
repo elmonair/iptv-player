@@ -799,9 +799,9 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       let savedProgress: { position: number } | null = null
       try {
         const dbRecord = await db.watchHistory.where('id').equals(`movie:${movieId}`).first()
+        console.log('[RESUME] Dexie query for movie:', movieId, 'result:', dbRecord ? `position=${dbRecord.position}` : 'not found')
         if (dbRecord && dbRecord.position > 0) {
           savedProgress = { position: dbRecord.position }
-          console.log('[Watch] Found saved progress for movie:', dbRecord.position)
         }
       } catch (err) {
         console.error('[Watch] Failed to query watch history:', err)
