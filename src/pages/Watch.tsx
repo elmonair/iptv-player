@@ -147,6 +147,9 @@ export default function Watch() {
   const activeItemRef = useRef<HTMLButtonElement>(null)
   const hasResumedRef = useRef(false)
   const seekInProgressRef = useRef(false)
+  const allEpisodesRef = useRef<EpisodeInfo['allEpisodes']>([])
+  const currentSeriesIdRef = useRef<string>('')
+  const currentSeriesNameRef = useRef<string>('')
   const handleChannelUnavailableRef = useRef<(message: string) => void>(() => {})
 
   useEffect(() => {
@@ -490,14 +493,24 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setVideoInfo(null)
     setCategoryName(episodeInfo.seriesName)
 
-    let sidebarEpisodes: WatchableItem[] = [episodeItem]
     if (episodeInfo.allEpisodes && episodeInfo.allEpisodes.length > 0) {
-      sidebarEpisodes = episodeInfo.allEpisodes.map((ep) => ({
+      allEpisodesRef.current = episodeInfo.allEpisodes
+      currentSeriesIdRef.current = episodeInfo.seriesId
+      currentSeriesNameRef.current = episodeInfo.seriesName
+    }
+
+    const allEps = allEpisodesRef.current
+    const seriesId = episodeInfo.seriesId || currentSeriesIdRef.current
+    const seriesName = episodeInfo.seriesName || currentSeriesNameRef.current
+
+    let sidebarEpisodes: WatchableItem[] = [episodeItem]
+    if (allEps && allEps.length > 0) {
+      sidebarEpisodes = allEps.map((ep) => ({
         type: 'episode' as const,
         data: {
           id: String(ep.id),
-          seriesId: episodeInfo.seriesId,
-          seriesName: episodeInfo.seriesName,
+          seriesId,
+          seriesName,
           seasonNumber: ep.seasonNumber,
           episodeNumber: ep.episode_num,
           episodeTitle: ep.title || `Episode ${ep.episode_num}`,
