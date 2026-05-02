@@ -171,7 +171,6 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const [volume, setVolume] = useState(1)
   const [showControls, setShowControls] = useState(true)
   const [currentTime, setCurrentTime] = useState(0)
-  const [videoDuration, setVideoDuration] = useState(0)
   const [bufferedPercent, setBufferedPercent] = useState(0)
   const [isBuffering, setIsBuffering] = useState(false)
   const [seekOffset, setSeekOffset] = useState(0)
@@ -181,8 +180,6 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const [selectedAudio, setSelectedAudio] = useState<number | null>(null)
   const [selectedSubtitle, setSelectedSubtitle] = useState<string>('none')
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const displayDuration = realDuration > 0 ? realDuration : videoDuration
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
@@ -279,12 +276,12 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       if (!videoRef.current || !activeSource) return
       const rawTime = videoRef.current.currentTime
       const ct = rawTime + seekOffset
-      const duration = displayDuration || videoRef.current.duration
+      const duration = realDuration || videoRef.current.duration
       updateWatchProgress(itemType, itemId, activeSource.id, ct, duration)
     }
 
     progressIntervalRef.current = setInterval(saveProgress, 10000)
-  }, [activeSource, updateWatchProgress, seekOffset, displayDuration])
+  }, [activeSource, updateWatchProgress, seekOffset, realDuration])
 
   const handleLoadedMetadata = useCallback(async (savedProgress?: { position: number } | null) => {
     if (hasResumedRef.current) return
@@ -463,10 +460,6 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const playEpisode = useCallback(async (episodeInfo: EpisodeInfo) => {
     if (!videoRef.current) return
 
-    setSeekOffset(0)
-    setRealDuration(0)
-    setVideoDuration(0)
-
     const source = activeSource
     if (!source || source.type !== 'xtream') return
 
@@ -588,10 +581,6 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
   const zapTo = useCallback(async (targetItemId: string) => {
     if (!targetItemId || !videoRef.current) return
-
-    setSeekOffset(0)
-    setRealDuration(0)
-    setVideoDuration(0)
 
     const source = usePlaylistStore.getState().getActiveSource()
     console.log('[zapTo] called with:', targetItemId, '| source from store:', source?.type, source?.name, '| id:', source?.id)
@@ -936,7 +925,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     if (!source || source.type !== 'xtream') return
     const { id: streamId, type: transcodeType } = extractStreamId(routeType, routeId, episodeId)
     if (!streamId || !transcodeType) return
-    const displayDur = displayDuration || videoRef.current?.duration || 0
+    const displayDur = realDuration || videoRef.current?.duration || 0
     const newTime = Math.max(0, Math.min(displayDur, currentTime + seconds))
     const transcodeUrl = buildTranscodeUrl(source, streamId, currentContainerExtension, transcodeType, newTime)
     console.log('[SKIP] Switching to transcode URL with skip:', newTime, 'URL:', transcodeUrl)
@@ -945,7 +934,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     videoRef.current.src = transcodeUrl
     videoRef.current.load()
     videoRef.current.play().catch(() => {})
-  }, [activeSource, routeType, routeId, episodeId, displayDuration, currentTime, currentContainerExtension])
+  }, [activeSource, routeType, routeId, episodeId, realDuration, currentTime, currentContainerExtension])
 
   const handlePrevChannel = useCallback(() => {
     clearAutoAdvanceTimer()
@@ -1178,6 +1167,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
             }
           }
 
+          if ((episodeState as EpisodeInfo).realDuration) {
+            setRealDuration((episodeState as EpisodeInfo).realDuration!)
+          }
+
           await playEpisode(episodeState)
           initRef.current = false
           return
@@ -1230,50 +1223,33 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     }
   }, [routeId, routeType, episodeId, navigate, zapTo, playEpisode, destroyPlayer, location])
 
-  // Always fetch real duration on mount for VOD content
+  // Prompt 1: Always fetch real duration on mount for VOD content
   useEffect(() => {
-    setRealDuration(0)
-    setVideoDuration(0)
-
     async function fetchRealDuration() {
       const source = usePlaylistStore.getState().getActiveSource()
       if (!source || source.type !== 'xtream') return
-      if (!routeType || routeType === 'live') return
 
       try {
         if (routeType === 'movie' && routeId) {
           const match = routeId.match(/movie-(\d+)/)
           if (match) {
-            console.log('[Duration] Fetching movie duration for:', match[1])
             const info = await getVodInfo(source.serverUrl, {
               username: source.username,
               password: source.password,
             }, match[1])
             const dur = Number(info?.info?.duration_secs) || 0
-            console.log('[Duration] Movie duration:', dur, 'seconds')
-            if (dur > 0) setRealDuration(dur)
+            if (dur > 0) {
+              console.log('[Watch] Fetched movie duration:', dur, 'seconds')
+              setRealDuration(dur)
+            }
           }
-        } else if (routeType === 'episode' && episodeId) {
-          // Try to get seriesId from location state first, then from DB
-          let seriesId: string | null = null
-          const episodeState = location.state as EpisodeInfo | null
-          if (episodeState?.seriesId) {
-            seriesId = episodeState.seriesId
-          } else {
-            try {
-              const epRecord = await db.episodes.where('streamId').equals(String(episodeId)).first()
-              if (epRecord?.seriesId) {
-                seriesId = epRecord.seriesId
-              }
-            } catch { /* DB lookup failed, skip */ }
-          }
-
-          if (seriesId) {
-            console.log('[Duration] Fetching series for episode:', episodeId, 'seriesId:', seriesId)
+        } else if (routeType === 'episode' && episodeId && location.state) {
+          const episodeState = location.state as EpisodeInfo
+          if (episodeState.seriesId) {
             const seriesInfo = await getSeriesInfo(source.serverUrl, {
               username: source.username,
               password: source.password,
-            }, seriesId)
+            }, episodeState.seriesId)
             let foundEpisode: { info?: { duration_secs?: number | string } } | null = null
             for (const season of Object.values(seriesInfo?.episodes ?? {})) {
               if (Array.isArray(season)) {
@@ -1282,16 +1258,18 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
               }
             }
             const dur = Number(foundEpisode?.info?.duration_secs) || 0
-            console.log('[Duration] Episode duration:', dur, 'seconds')
-            if (dur > 0) setRealDuration(dur)
+            if (dur > 0) {
+              console.log('[Watch] Fetched episode duration:', dur, 'seconds')
+              setRealDuration(dur)
+            }
           }
         }
       } catch (err) {
-        console.error('[Duration] Failed to fetch:', err)
+        console.error('[Watch] Failed to fetch real duration:', err)
       }
     }
     fetchRealDuration()
-  }, [routeType, routeId, episodeId, activeSource?.id])
+  }, [routeType, routeId, episodeId, location])
 
   useEffect(() => {
     if (currentType === 'channel' || !activeSource || activeSource.type !== 'xtream') return
@@ -1376,14 +1354,14 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     return () => {
       const rawTime = videoRef.current?.currentTime || 0
       const ct = rawTime + seekOffset
-      const dur = displayDuration || videoRef.current?.duration || 0
+      const dur = realDuration || videoRef.current?.duration || 0
       const itemId = currentType === 'movie' ? routeId : episodeId
       if (ct > 5 && dur > 0) {
         console.log('[Watch] Saving progress on unmount:', ct, '/', dur, 'seekOffset:', seekOffset)
         updateWatchProgress(currentType as 'movie' | 'episode', itemId || '', activeSource?.id || '', ct, dur)
       }
     }
-  }, [currentType, routeId, episodeId, activeSource?.id, updateWatchProgress, seekOffset, displayDuration])
+  }, [currentType, routeId, episodeId, activeSource?.id, updateWatchProgress, seekOffset, realDuration])
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-slate-950 flex flex-col select-none">
@@ -1494,20 +1472,17 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                   ref={videoRef}
                   playsInline
                   className="w-full h-full object-contain"
-onTimeUpdate={(e) => {
+                  onTimeUpdate={(e) => {
                     const videoEl = e.currentTarget
                     const ct = videoEl.currentTime + seekOffset
-                    const dd = realDuration > 0 ? realDuration : (videoEl.duration || 0)
+                    const displayDur = realDuration || videoEl.duration || 0
                     setCurrentTime(ct)
-                    if (videoEl.duration && Number.isFinite(videoEl.duration)) {
-                      setVideoDuration(videoEl.duration)
-                    }
-                    const prog = dd > 0 ? (ct / dd) * 100 : 0
+                    const prog = displayDur > 0 ? (ct / displayDur) * 100 : 0
                     const bar = document.getElementById('watch-progress-bar') as HTMLDivElement | null
                     if (bar) bar.style.width = `${prog}%`
                     if (videoEl.buffered.length > 0) {
                       const buffered = videoEl.buffered.end(videoEl.buffered.length - 1)
-                      const bufPct = dd > 0 ? (buffered / dd) * 100 : 0
+                      const bufPct = displayDur > 0 ? (buffered / displayDur) * 100 : 0
                       setBufferedPercent(bufPct)
                       const bufBar = document.getElementById('watch-buffered-bar') as HTMLDivElement | null
                       if (bufBar) bufBar.style.width = `${bufPct}%`
@@ -1518,11 +1493,8 @@ onTimeUpdate={(e) => {
                   onPause={() => setIsPlaying(false)}
                   onSeeking={() => console.log('[SEEK] seeking event, readyState:', videoRef.current?.readyState)}
                   onSeeked={() => console.log('[SEEK] seeked event, currentTime:', videoRef.current?.currentTime)}
-onLoadedMetadata={(e) => {
-                    const dd = realDuration > 0 ? realDuration : (e.currentTarget.duration || 0)
-                    if (e.currentTarget.duration && Number.isFinite(e.currentTarget.duration)) {
-                      setVideoDuration(e.currentTarget.duration)
-                    }
+                  onLoadedMetadata={(e) => {
+                    const dd = realDuration || e.currentTarget.duration || 0
                     const durEl = document.getElementById('watch-duration')
                     if (durEl) durEl.textContent = formatTime(dd)
                   }}
@@ -1583,7 +1555,7 @@ onLoadedMetadata={(e) => {
                         <div className="flex items-center gap-2 text-white text-sm font-mono">
                           <span id="watch-current-time">{formatTime(currentTime)}</span>
                           <span className="text-white/50">/</span>
-                          <span id="watch-duration">{formatTime(displayDuration)}</span>
+                          <span id="watch-duration">{formatTime(realDuration || videoRef.current?.duration || 0)}</span>
                         </div>
                       </div>
 
@@ -1597,7 +1569,7 @@ onLoadedMetadata={(e) => {
                             const doSeek = (ev: MouseEvent) => {
                               const rect = e.currentTarget.getBoundingClientRect()
                               const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
-const displayDur = displayDuration || videoRef.current?.duration || 0
+                              const displayDur = realDuration || videoRef.current?.duration || 0
                               const target = pct * displayDur
                               if (!videoRef.current) return
                               const source = activeSource
@@ -1643,11 +1615,11 @@ const displayDur = displayDuration || videoRef.current?.duration || 0
                             <div
                               id="watch-progress-bar"
                               className="absolute left-0 top-0 h-full bg-indigo-500 rounded-full pointer-events-none"
-                              style={{ width: `${displayDuration > 0 ? (currentTime / displayDuration) * 100 : 0}%` }}
+                              style={{ width: `${realDuration > 0 ? (currentTime / realDuration) * 100 : 0}%` }}
                             />
                           </div>
 <span className="text-xs text-white/60 w-10 select-none">
-                            {formatTime(displayDuration)}
+                            {formatTime(realDuration || videoRef.current?.duration || 0)}
                           </span>
                         </div>
 
@@ -1934,9 +1906,9 @@ const displayDur = displayDuration || videoRef.current?.duration || 0
                        <p className="text-green-400 text-sm">Playing</p>
                        <span className="text-slate-600 mx-1">|</span>
                        <span className="text-slate-400 text-sm font-mono">
-{formatTime(currentTime)}
-                          <span className="text-slate-600 mx-1">/</span>
-                          {formatTime(displayDuration)}
+                         {formatTime(currentTime)}
+                         <span className="text-slate-600 mx-1">/</span>
+                         {formatTime(realDuration || videoRef.current?.duration || 0)}
                        </span>
                      </>
                    )}
