@@ -140,6 +140,7 @@ export default function Watch() {
   const channelErrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activeItemRef = useRef<HTMLButtonElement>(null)
   const hasResumedRef = useRef(false)
+  const seekInProgressRef = useRef(false)
   const handleChannelUnavailableRef = useRef<(message: string) => void>(() => {})
 
   const pathname = location.pathname
@@ -907,9 +908,14 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       }
       videoEl.onerror = () => {
         if (!currentStreamUrl) return
-        console.error('[Watch] Movie video error:', videoEl.error?.code, videoEl.error?.message)
-        setStatus('error')
+        if (seekInProgressRef.current) {
+          console.log('[Watch] Skipping movie error during seek')
+          return
+        }
         const errCode = videoEl.error?.code ?? 0
+        if (errCode === 1) return
+        console.error('[Watch] Movie video error:', errCode, videoEl.error?.message)
+        setStatus('error')
         if (errCode === 4) {
           setErrorMsg('Video format not supported by browser. Copy URL for VLC.')
         } else {
@@ -954,6 +960,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     console.log('[SKIP] Switching to transcode URL with skip:', newTime, 'URL:', transcodeUrl)
     setSeekOffset(newTime)
     setCurrentStreamUrl(transcodeUrl)
+    seekInProgressRef.current = true
+    setTimeout(() => { seekInProgressRef.current = false }, 3000)
     videoRef.current.src = transcodeUrl
     videoRef.current.load()
     videoRef.current.play().catch(() => {})
@@ -1350,6 +1358,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
     setSeekOffset(currentPos)
     setCurrentStreamUrl(newUrl)
+    seekInProgressRef.current = true
+    setTimeout(() => { seekInProgressRef.current = false }, 3000)
     videoRef.current.src = newUrl
     videoRef.current.load()
     videoRef.current.play().catch(() => {})
@@ -1611,11 +1621,16 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                               const transcodeUrl = buildTranscodeUrl(source, streamId, currentContainerExtension, transcodeType, target)
                               console.log('[SEEK] New transcode URL:', transcodeUrl)
 
-                              setSeekOffset(target)
-                              setCurrentStreamUrl(transcodeUrl)
-                              videoRef.current.src = transcodeUrl
-                              videoRef.current.load()
-                              videoRef.current.play().catch((err) => console.error('[SEEK] Play failed:', err))
+setSeekOffset(target)
+                               setCurrentStreamUrl(transcodeUrl)
+                               seekInProgressRef.current = true
+                               setTimeout(() => { seekInProgressRef.current = false }, 3000)
+                               videoRef.current.src = transcodeUrl
+                               videoRef.current.load()
+                               videoRef.current.play().catch((err) => {
+                                 if (err instanceof Error && err.name === 'AbortError') return
+                                 console.error('[SEEK] Play failed:', err)
+                               })
                             }
                             const doSeekWrapper = (ev: MouseEvent) => { ev.stopPropagation(); doSeek(ev) }
                             const onUp = () => {
