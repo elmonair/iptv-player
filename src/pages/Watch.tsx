@@ -122,6 +122,7 @@ function extractStreamId(routeType: string | null, routeId: string | undefined, 
 }
 
 export default function Watch() {
+  console.log('[Watch] COMPONENT MOUNTED')
   const { id: routeId, episodeId } = useParams<{ id: string; episodeId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
@@ -142,6 +143,10 @@ export default function Watch() {
   const hasResumedRef = useRef(false)
   const seekInProgressRef = useRef(false)
   const handleChannelUnavailableRef = useRef<(message: string) => void>(() => {})
+
+  useEffect(() => {
+    return () => { console.log('[Watch] COMPONENT UNMOUNTING') }
+  }, [])
 
   const pathname = location.pathname
   const routeType: 'live' | 'movie' | 'episode' | null =
@@ -1136,6 +1141,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const showMainContent = status !== 'error' || isChannelError
 
   const initRef = useRef<boolean>(false)
+  const locationStateRef = useRef<typeof location.state>(location.state)
+
+  useEffect(() => {
+    locationStateRef.current = location.state
+  }, [location.state])
 
   useEffect(() => {
     if (!routeId && !episodeId) {
@@ -1153,7 +1163,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         routeType,
         routeId,
         episodeId,
-        locationState: location.state,
+        locationState: locationStateRef.current,
         sourceLoaded: !!getActiveSource(),
       })
 
@@ -1170,8 +1180,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
         console.log('[Watch] Source:', source.name ?? 'unknown', '| route:', routeType, routeId ?? episodeId)
 
-        if (episodeId && location.state) {
-          let episodeState: EpisodeInfo = location.state as EpisodeInfo
+        if (episodeId && locationStateRef.current) {
+          let episodeState: EpisodeInfo = locationStateRef.current as EpisodeInfo
 
           if (!episodeState.allEpisodes && episodeState.seriesId) {
             try {
@@ -1249,10 +1259,12 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     init()
 
     return () => {
+      console.log('[Watch] Cleanup — route changed or unmount')
       initRef.current = false
       destroyPlayer()
     }
-  }, [routeId, routeType, episodeId, navigate, zapTo, playEpisode, destroyPlayer, location])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeId, routeType, episodeId])
 
   // Prompt 1: Always fetch real duration on mount for VOD content
   useEffect(() => {
@@ -1274,8 +1286,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
               setRealDuration(dur)
             }
           }
-        } else if (routeType === 'episode' && episodeId && location.state) {
-          const episodeState = location.state as EpisodeInfo
+        } else if (routeType === 'episode' && episodeId && locationStateRef.current) {
+          const episodeState = locationStateRef.current as EpisodeInfo
           if (episodeState.seriesId) {
             const seriesInfo = await getSeriesInfo(source.serverUrl, {
               username: source.username,
@@ -1300,7 +1312,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       }
     }
     fetchRealDuration()
-  }, [routeType, routeId, episodeId, location])
+  }, [routeType, routeId, episodeId])
 
   useEffect(() => {
     if (currentType === 'channel' || !activeSource || activeSource.type !== 'xtream') return
