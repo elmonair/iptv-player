@@ -155,6 +155,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(1)
   const [showControls, setShowControls] = useState(true)
+  const [currentTime, setCurrentTime] = useState(0)
+  const [bufferedPercent, setBufferedPercent] = useState(0)
+  const [isBuffering, setIsBuffering] = useState(false)
+  const [seekOffset, setSeekOffset] = useState(0)
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
@@ -798,10 +802,12 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   }, [destroyPlayer, getWatchHistory, startProgressTracking, handleLoadedMetadata, setLastChannelId, clearChannelErrorTimeout, clearAutoAdvanceTimer])
 
   const handleFullscreenToggle = useCallback(() => {
+    const videoContainer = videoRef.current?.parentElement
+    if (!videoContainer) return
     if (!document.fullscreenElement) {
-      document.documentElement.requestFullscreen().catch(() => {})
+      videoContainer.requestFullscreen?.().catch(() => {})
     } else {
-      document.exitFullscreen().catch(() => {})
+      document.exitFullscreen?.().catch(() => {})
     }
   }, [])
 
@@ -1160,6 +1166,19 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     }
   }, [])
 
+  useEffect(() => {
+    if (currentType === 'channel' || !videoRef.current) return
+    return () => {
+      const ct = videoRef.current?.currentTime || 0
+      const dur = videoRef.current?.duration || 0
+      const itemId = currentType === 'movie' ? routeId : episodeId
+      if (ct > 5 && dur > 0) {
+        console.log('[Watch] Saving progress on unmount:', ct, '/', dur)
+        updateWatchProgress(currentType as 'movie' | 'episode', itemId || '', activeSource?.id || '', ct, dur)
+      }
+    }
+  }, [currentType, routeId, episodeId, activeSource?.id, updateWatchProgress])
+
   return (
     <div className="h-[100dvh] overflow-hidden bg-slate-950 flex flex-col select-none">
       {/* Top Navigation Bar - Fixed height 56px */}
@@ -1269,30 +1288,25 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                   className="w-full h-full object-contain"
                   onTimeUpdate={(e) => {
                     const videoEl = e.currentTarget
-                    const ct = videoEl.currentTime
-                    const dd = realDuration || videoEl.duration || 0
-                    const prog = dd > 0 ? (ct / dd) * 100 : 0
+                    const ct = videoEl.currentTime + seekOffset
+                    const displayDur = realDuration || videoEl.duration || 0
+                    setCurrentTime(ct)
+                    const prog = displayDur > 0 ? (ct / displayDur) * 100 : 0
                     const bar = document.getElementById('watch-progress-bar') as HTMLDivElement | null
                     if (bar) bar.style.width = `${prog}%`
-                    const curEl = document.getElementById('watch-current-time')
-                    const durEl = document.getElementById('watch-duration')
-                    const statCur = document.getElementById('watch-status-current')
-                    const statDur = document.getElementById('watch-status-duration')
-                    if (curEl) curEl.textContent = formatTime(ct)
-                    if (durEl) durEl.textContent = formatTime(dd)
-                    if (statCur) statCur.textContent = formatTime(ct)
-                    if (statDur) statDur.textContent = formatTime(dd)
-                    // Track buffered (stored in bar element title for debugging if needed)
                     if (videoEl.buffered.length > 0) {
                       const buffered = videoEl.buffered.end(videoEl.buffered.length - 1)
-                      void buffered // used in DOM update below
-                      const bufPct = dd > 0 ? (buffered / dd) * 100 : 0
+                      const bufPct = displayDur > 0 ? (buffered / displayDur) * 100 : 0
+                      setBufferedPercent(bufPct)
                       const bufBar = document.getElementById('watch-buffered-bar') as HTMLDivElement | null
                       if (bufBar) bufBar.style.width = `${bufPct}%`
                     }
                   }}
-                  onPlay={() => setIsPlaying(true)}
+                  onWaiting={() => setIsBuffering(true)}
+                  onPlaying={() => { setIsBuffering(false); setIsPlaying(true) }}
                   onPause={() => setIsPlaying(false)}
+                  onSeeking={() => console.log('[SEEK] seeking event, readyState:', videoRef.current?.readyState)}
+                  onSeeked={() => console.log('[SEEK] seeked event, currentTime:', videoRef.current?.currentTime)}
                   onLoadedMetadata={(e) => {
                     const dd = realDuration || e.currentTarget.duration || 0
                     const durEl = document.getElementById('watch-duration')
@@ -1308,6 +1322,13 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                     }
                   }}
                 />
+
+                {/* Buffering spinner */}
+                {isBuffering && (
+                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
+                    <Loader2 className="w-12 h-12 text-white animate-spin" />
+                  </div>
+                )}
 
                 {/* VOD CONTROLS OVERLAY - only for movies/episodes */}
                 {currentType !== 'channel' && (
@@ -1344,47 +1365,63 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                       <div className="flex items-start justify-between px-4 py-3 bg-gradient-to-b from-black/80 to-transparent">
                         <span className="text-white text-sm font-medium truncate max-w-[60%]">{itemName}</span>
                         <div className="flex items-center gap-2 text-white text-sm font-mono">
-                          <span id="watch-current-time">0:00</span>
+                          <span id="watch-current-time">{formatTime(currentTime)}</span>
                           <span className="text-white/50">/</span>
-                          <span id="watch-duration">0:00</span>
+                          <span id="watch-duration">{formatTime(realDuration || videoRef.current?.duration || 0)}</span>
                         </div>
                       </div>
 
                       {/* Bottom controls */}
                       <div className="px-4 py-3 bg-gradient-to-t from-black/90 to-transparent">
-                        {/* Seek bar */}
+{/* Seek bar */}
                         <div
                           className="flex items-center gap-2 mb-2 py-2 cursor-pointer"
-                          onClick={(e) => {
+                          onMouseDown={(e) => {
                             e.stopPropagation()
-                            console.log('[SEEK] Click event fired!')
-                            console.log('[SEEK] event:', e.type, e.clientX)
-                            const rect = e.currentTarget.getBoundingClientRect()
-                            console.log('[SEEK] rect:', JSON.stringify({ left: rect.left, top: rect.top, width: rect.width, height: rect.height }))
-                            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
-                            const duration = realDuration || videoRef.current?.duration || 0
-                            const targetTime = pct * duration
-                            console.log('[SEEK] target:', targetTime, 'percent:', pct, 'duration:', duration, 'realDuration:', realDuration)
-                            if (videoRef.current) {
-                              videoRef.current.currentTime = targetTime
+                            const doSeek = (ev: MouseEvent) => {
+                              const rect = e.currentTarget.getBoundingClientRect()
+                              const pct = Math.max(0, Math.min(1, (ev.clientX - rect.left) / rect.width))
+                              const displayDur = realDuration || videoRef.current?.duration || 0
+                              const target = pct * displayDur
+                              console.log('[SEEK] drag target:', target, 'pct:', pct, 'isTranscoded:', needsTranscode(videoRef.current?.src?.split('.').pop() || ''))
+                              if (!videoRef.current) return
+                              const ext = videoRef.current?.src?.split('.').pop() || ''
+                              if (needsTranscode(ext)) {
+                                const baseUrl = (videoRef.current.src || '').split('?')[0]
+                                const seekUrl = `${baseUrl}${baseUrl.includes('?') ? '&' : '?'}seek=${Math.floor(target)}`
+                                setSeekOffset(target)
+                                videoRef.current.src = seekUrl
+                                videoRef.current.load()
+                                videoRef.current.play().catch(() => {})
+                              } else {
+                                videoRef.current.currentTime = target
+                              }
                             }
+                            const doSeekWrapper = (ev: MouseEvent) => { ev.stopPropagation(); doSeek(ev) }
+                            const onUp = () => {
+                              document.removeEventListener('mousemove', doSeekWrapper)
+                              document.removeEventListener('mouseup', onUp)
+                            }
+                            document.addEventListener('mousemove', doSeekWrapper)
+                            document.addEventListener('mouseup', onUp)
+                            doSeek(e.nativeEvent)
                           }}
                         >
-                          <span className="text-xs text-white/60 w-10 text-right select-none">0:00</span>
+                          <span className="text-xs text-white/60 w-10 text-right select-none">
+                            {formatTime(currentTime)}
+                          </span>
                           <div className="flex-1 h-1.5 bg-white/20 rounded-full relative group">
-                            <div className="absolute inset-0 bg-white/10 rounded-full" />
                             <div
-                              id="watch-buffered-bar"
                               className="absolute left-0 top-0 h-full bg-white/30 rounded-full pointer-events-none"
-                              style={{ width: '0%' }}
+                              style={{ width: `${bufferedPercent}%` }}
                             />
                             <div
                               id="watch-progress-bar"
                               className="absolute left-0 top-0 h-full bg-indigo-500 rounded-full pointer-events-none"
-                              style={{ width: '0%' }}
+                              style={{ width: `${realDuration > 0 ? (currentTime / realDuration) * 100 : 0}%` }}
                             />
                           </div>
-                          <span className="text-xs text-white/60 w-10 select-none">
+<span className="text-xs text-white/60 w-10 select-none">
                             {formatTime(realDuration || videoRef.current?.duration || 0)}
                           </span>
                         </div>
@@ -1591,17 +1628,17 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                  {status === 'ready-click-to-play' && (
                    <p className="text-slate-400 text-sm">Click play to start</p>
                  )}
-                  {status === 'playing' && (
-                    <>
-                      <p className="text-green-400 text-sm">Playing</p>
-                      <span className="text-slate-600 mx-1">|</span>
-                      <span className="text-slate-400 text-sm font-mono">
-                        <span id="watch-status-current">0:00</span>
-                        <span className="text-slate-600 mx-1">/</span>
-                        <span id="watch-status-duration">0:00</span>
-                      </span>
-                    </>
-                  )}
+{status === 'playing' && (
+                     <>
+                       <p className="text-green-400 text-sm">Playing</p>
+                       <span className="text-slate-600 mx-1">|</span>
+                       <span className="text-slate-400 text-sm font-mono">
+                         {formatTime(currentTime)}
+                         <span className="text-slate-600 mx-1">/</span>
+                         {formatTime(realDuration || videoRef.current?.duration || 0)}
+                       </span>
+                     </>
+                   )}
                   {import.meta.env.DEV && currentType === 'channel' && (
                     <p className="text-[10px] text-slate-500 truncate">
                       {currentItemId} | {lastVideoErrorCode ?? 'ok'}
