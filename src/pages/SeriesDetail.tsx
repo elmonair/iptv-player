@@ -89,9 +89,10 @@ export default function SeriesDetail() {
           password: activeSource.password,
         }, seriesId)
         setSeriesInfo(info)
-        console.log('[SeriesDetail] Series info loaded:', info.info.name)
+        console.log('[SeriesDetail] Series info loaded:', info?.info?.name)
 
-        const seasonNumbers = Object.keys(info.episodes).map(Number).sort((a, b) => a - b)
+        const safeEpisodes = info?.episodes ?? {}
+        const seasonNumbers = Object.keys(safeEpisodes).map(Number).sort((a, b) => a - b)
         if (seasonNumbers.length > 0) {
           const initialSeason = browseSeries.selectedSeasonNumber && seasonNumbers.includes(browseSeries.selectedSeasonNumber)
             ? browseSeries.selectedSeasonNumber
@@ -112,12 +113,14 @@ export default function SeriesDetail() {
   const { seasons, currentEpisodes, totalEpisodes } = useMemo(() => {
     if (!seriesInfo) return { seasons: [], currentEpisodes: [], totalEpisodes: 0 }
 
-    const seasonNumbers = Object.keys(seriesInfo.episodes)
+    const safeEpisodes = seriesInfo.episodes ?? {}
+
+    const seasonNumbers = Object.keys(safeEpisodes)
       .map(Number)
       .sort((a, b) => a - b)
 
-    const episodes = seriesInfo.episodes[selectedSeason] || []
-    const total = seasonNumbers.reduce((acc, s) => acc + (seriesInfo.episodes[s]?.length || 0), 0)
+    const episodes = safeEpisodes[selectedSeason] || []
+    const total = seasonNumbers.reduce((acc, s) => acc + (safeEpisodes[s]?.length || 0), 0)
 
     return {
       seasons: seasonNumbers,
@@ -195,7 +198,7 @@ export default function SeriesDetail() {
       seasonNumber: number
     }> = []
 
-    for (const [seasonNum, eps] of Object.entries(seriesInfo.episodes)) {
+    for (const [seasonNum, eps] of Object.entries(seriesInfo.episodes ?? {})) {
       for (const ep of eps) {
         allEpisodes.push({
           id: ep.id,
@@ -234,6 +237,7 @@ export default function SeriesDetail() {
         streamId: episodeId,
         allEpisodes,
         returnTo: `/series/${seriesId}`,
+        realDuration: Number(episode.info?.duration_secs) || 0,
       },
     })
   }
@@ -343,10 +347,10 @@ export default function SeriesDetail() {
             </button>
           </div>
 
-          <div className="px-4 sm:px-6 lg:px-8 py-3 sm:py-5 lg:py-6">
-            <div className="flex flex-col md:flex-row gap-4 md:gap-6">
+          <div className="px-4 sm:px-6 lg:px-8 py-4 sm:py-6 lg:py-8">
+            <div className="flex flex-col md:flex-row gap-5 md:gap-8">
               <div className="flex-shrink-0 mx-auto md:mx-0">
-                <div className="w-[170px] sm:w-[190px] md:w-[200px] lg:w-[230px] aspect-[2/3] rounded-lg overflow-hidden shadow-2xl border border-slate-700/50 bg-slate-800">
+                <div className="w-[170px] sm:w-[190px] md:w-[210px] lg:w-[230px] aspect-[2/3] rounded-xl overflow-hidden shadow-2xl border border-slate-700/50 bg-slate-800">
                   {betterPoster ? (
                     <img src={getProxiedImageUrl(betterPoster)} alt={cleanTitle} className="w-full h-full object-cover" loading="lazy" />
                   ) : (
@@ -357,12 +361,12 @@ export default function SeriesDetail() {
                 </div>
               </div>
 
-              <div className="flex-1 min-w-0 flex flex-col justify-end">
-                <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white mb-2 sm:mb-3 leading-tight">
+              <div className="flex-1 min-w-0 flex flex-col justify-center">
+                <h1 className="text-3xl sm:text-4xl lg:text-5xl font-bold text-white mb-3 sm:mb-4 leading-[1.05] tracking-tight">
                   {cleanTitle}
                 </h1>
 
-                <div className="flex flex-wrap items-center gap-2 mb-3 sm:mb-4">
+                <div className="flex flex-wrap items-center gap-2 mb-4 sm:mb-5">
                   {displayRating && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-yellow-500/20 text-yellow-400 text-xs font-medium rounded">
                       <Star className="w-3 h-3" />
@@ -398,40 +402,40 @@ export default function SeriesDetail() {
                   )}
                 </div>
 
-                <div className="flex items-center gap-2 sm:gap-3 mb-3 sm:mb-5">
+                <div className="flex items-center gap-2 sm:gap-3 mb-4 sm:mb-6">
                   <button
                     onClick={handlePlayFirst}
-                    className="inline-flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2 sm:py-2.5 bg-white text-slate-900 rounded-md font-semibold text-sm hover:bg-slate-200 transition-colors min-h-[44px]"
+                    className="inline-flex items-center gap-1.5 sm:gap-2 px-4 sm:px-6 py-2.5 sm:py-3 bg-white text-slate-900 rounded-lg font-semibold text-sm hover:bg-slate-200 transition-colors min-h-[48px] focus:outline-none focus:ring-2 focus:ring-white/40"
                   >
                     <Play className="w-4 h-4 sm:w-5 sm:h-5 fill-current" />
                     <span>Play First</span>
                   </button>
                   <button
                     onClick={handleFavoriteClick}
-                    className="inline-flex items-center justify-center w-10 h-10 sm:w-11 sm:h-11 bg-white/10 hover:bg-white/20 text-white rounded-md transition-colors backdrop-blur-sm"
+                    className="inline-flex items-center justify-center w-10 h-10 sm:w-11 sm:h-11 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-colors backdrop-blur-sm focus:outline-none focus:ring-2 focus:ring-white/30"
                     aria-label={series && activeSource && isFavorite('series', series.id) ? 'Remove from favorites' : 'Add to favorites'}
                   >
                     <Heart className={`w-4 h-4 sm:w-5 sm:h-5 transition-colors ${series && activeSource && isFavorite('series', series.id) ? 'text-red-500 fill-red-500' : ''}`} />
                   </button>
                 </div>
 
-                <div className="max-w-2xl mb-3 sm:mb-5">
+                <div className="max-w-3xl mb-4 sm:mb-6">
                   <h2 className="sr-only">Overview</h2>
                   {overview ? (
-                    <p className="text-slate-300 text-sm leading-relaxed line-clamp-3 sm:line-clamp-none">{overview}</p>
+                    <p className="text-slate-200 text-sm sm:text-[15px] leading-7 sm:leading-8 line-clamp-4 sm:line-clamp-none">{overview}</p>
                   ) : (
                     <p className="text-slate-500 text-sm italic">No description is available from this playlist.</p>
                   )}
                 </div>
 
                 {displayCast && (
-                  <div className="mb-3 sm:mb-4">
-                    <span className="text-xs text-slate-500">Cast: </span>
-                    <span className="text-slate-400 text-xs line-clamp-2">{displayCast}</span>
+                  <div className="mb-4 sm:mb-5">
+                    <span className="text-xs uppercase tracking-wide text-slate-500">Cast</span>
+                    <p className="mt-1 text-sm text-slate-300 line-clamp-2">{displayCast}</p>
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-500">
+                <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-500">
                   {displayDirector && <span>Director: <span className="text-slate-400">{displayDirector}</span></span>}
                   {displayGenre && <span>Genre: <span className="text-slate-400">{displayGenre}</span></span>}
                   {displayReleaseDate && <span>Release: <span className="text-slate-400">{displayReleaseDate}</span></span>}
@@ -441,7 +445,7 @@ export default function SeriesDetail() {
               </div>
 
               <aside className="hidden lg:block w-56 flex-shrink-0">
-                <div className="bg-slate-800/60 backdrop-blur-sm border border-slate-700/50 rounded-xl p-4 space-y-3">
+                <div className="bg-slate-900/65 backdrop-blur-sm border border-slate-700/60 rounded-2xl p-4 space-y-3 sticky top-24">
                   <div className="flex items-center gap-2 text-slate-400 text-xs uppercase tracking-wider">
                     <Info className="w-3.5 h-3.5" />
                     <span>Info</span>
@@ -462,10 +466,10 @@ export default function SeriesDetail() {
         </div>
       </div>
 
-      <div className="px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6 pb-8 space-y-5 sm:space-y-6">
+      <div className="px-4 sm:px-6 lg:px-8 pt-5 sm:pt-7 pb-8 space-y-6 sm:space-y-7">
         {seasons.length > 0 && (
           <div>
-            <div className="flex items-center gap-2 mb-3 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+            <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-2" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               {seasons.map((season) => {
                 const isSelected = season === selectedSeason
                 return (
@@ -496,7 +500,7 @@ export default function SeriesDetail() {
                     <button
                       key={episode.id}
                       onClick={() => handleEpisodeClick(episode)}
-                      className="w-full flex items-center gap-3 px-4 py-3 bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 rounded-lg transition-colors text-left focus:outline-none focus:ring-2 focus:ring-violet-500/50"
+                      className="w-full flex items-center gap-3 px-4 py-3.5 bg-slate-800/50 hover:bg-slate-800 border border-slate-700/50 rounded-xl transition-colors text-left focus:outline-none focus:ring-2 focus:ring-violet-500/50"
                     >
                       <div className="flex-shrink-0 w-10 h-10 bg-slate-700 text-white rounded-lg flex items-center justify-center">
                         <span className="text-sm font-semibold">{episode.episode_num}</span>
@@ -506,7 +510,7 @@ export default function SeriesDetail() {
                           {episode.title || `Episode ${episode.episode_num}`}
                         </p>
                         {formattedDuration && (
-                          <p className="text-slate-500 text-xs mt-0.5">{formattedDuration}</p>
+                          <p className="text-slate-500 text-xs mt-1">{formattedDuration}</p>
                         )}
                       </div>
                       <button

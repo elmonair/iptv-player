@@ -14,6 +14,15 @@ import type { ChannelRecord, MovieRecord } from '../lib/db'
 import type { EpgProgram } from '../lib/epgParser'
 import { getProxiedImageUrl } from '../lib/imageProxy'
 
+const formatTime = (secs: number): string => {
+  if (!secs || !Number.isFinite(secs)) return '0:00'
+  const h = Math.floor(secs / 3600)
+  const m = Math.floor((secs % 3600) / 60)
+  const s = Math.floor(secs % 60)
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
 type WatchStatus = 'loading' | 'ready-click-to-play' | 'playing' | 'error'
 type EpisodeInfo = {
   id: string
@@ -24,6 +33,7 @@ type EpisodeInfo = {
   episodeTitle: string
   containerExtension: string
   streamId: number
+  realDuration?: number
   allEpisodes?: Array<{
     id: number
     episode_num: number
@@ -80,6 +90,24 @@ function buildSeriesProxyUrl(source: { id: string; serverUrl: string; username: 
   return `/proxy/series/${encodeURIComponent(source.id)}/${encodeURIComponent(streamId)}.${ext}?${params.toString()}`
 }
 
+const TRANSCODE_EXTENSIONS = ['mkv', 'avi', 'wmv', 'flv', 'ts', 'divx', 'xvid', 'm4v']
+const DIRECT_PLAY_EXTENSIONS = ['mp4', 'webm', 'mov', 'm4a', 'mp3']
+
+function needsTranscode(ext: string): boolean {
+  const lower = (ext || '').toLowerCase()
+  return TRANSCODE_EXTENSIONS.includes(lower) && !DIRECT_PLAY_EXTENSIONS.includes(lower)
+}
+
+function buildTranscodeUrl(source: { id: string; serverUrl: string; username: string; password: string }, streamId: string, ext: string, type: 'movie' | 'series'): string {
+  const params = new URLSearchParams({
+    serverUrl: source.serverUrl,
+    username: source.username,
+    password: source.password,
+    ext,
+  })
+  return `/transcode/${type}/${encodeURIComponent(streamId)}?${params.toString()}`
+}
+
 export default function Watch() {
   const { id: routeId, episodeId } = useParams<{ id: string; episodeId: string }>()
   const navigate = useNavigate()
@@ -122,6 +150,7 @@ export default function Watch() {
 const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const [autoAdvanceSeconds, setAutoAdvanceSeconds] = useState<number | null>(null)
   const [channelEpg, setChannelEpg] = useState<Record<string, EpgProgram | null>>({})
+  const [realDuration, setRealDuration] = useState<number>(0)
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
@@ -320,6 +349,9 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     } else if (item.type === 'movie') {
       const movie = item.data as MovieRecord
       const ext = movie.containerExtension || 'mp4'
+      if (import.meta.env.PROD && needsTranscode(ext)) {
+        return buildTranscodeUrl(source as { id: string; serverUrl: string; username: string; password: string }, String(movie.streamId), ext, 'movie')
+      }
       if (import.meta.env.PROD) {
         return buildMovieProxyUrl(source as { id: string; serverUrl: string; username: string; password: string }, String(movie.streamId), ext)
       }
@@ -327,6 +359,9 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     } else if (item.type === 'episode') {
       const episode = item.data as EpisodeInfo
       const ext = episode.containerExtension || 'mkv'
+      if (import.meta.env.PROD && needsTranscode(ext)) {
+        return buildTranscodeUrl(source as { id: string; serverUrl: string; username: string; password: string }, String(episode.streamId), ext, 'series')
+      }
       if (import.meta.env.PROD) {
         return buildSeriesProxyUrl(source as { id: string; serverUrl: string; username: string; password: string }, String(episode.streamId), ext)
       }
@@ -943,6 +978,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
             }
           }
 
+          if ((episodeState as EpisodeInfo).realDuration) {
+            setRealDuration((episodeState as EpisodeInfo).realDuration!)
+          }
+
           await playEpisode(episodeState)
           initRef.current = false
           return
@@ -1068,7 +1107,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <button
                 onClick={() => navigate('/home')}
-                className="px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-yellow-500/50 min-h-[48px]"
+                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[48px]"
               >
                 Back to Home
               </button>
@@ -1096,10 +1135,55 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
               <div className="relative w-full h-full flex items-center justify-center bg-black rounded border-slate-700">
                 <video
                   ref={videoRef}
-                  controls
                   playsInline
                   className="w-full h-full object-contain"
+                  onTimeUpdate={(e) => {
+                    const videoEl = e.currentTarget
+                    const ct = videoEl.currentTime
+                    const dd = realDuration || videoEl.duration || 0
+                    const prog = dd > 0 ? (ct / dd) * 100 : 0
+                    const bar = document.getElementById('watch-progress-bar') as HTMLDivElement | null
+                    if (bar) bar.style.width = `${prog}%`
+                    const curEl = document.getElementById('watch-current-time')
+                    const durEl = document.getElementById('watch-duration')
+                    const statCur = document.getElementById('watch-status-current')
+                    const statDur = document.getElementById('watch-status-duration')
+                    if (curEl) curEl.textContent = formatTime(ct)
+                    if (durEl) durEl.textContent = formatTime(dd)
+                    if (statCur) statCur.textContent = formatTime(ct)
+                    if (statDur) statDur.textContent = formatTime(dd)
+                  }}
+                  onLoadedMetadata={(e) => {
+                    const dd = realDuration || e.currentTarget.duration || 0
+                    const durEl = document.getElementById('watch-duration')
+                    if (durEl) durEl.textContent = formatTime(dd)
+                  }}
                 />
+                <div className="absolute inset-0 flex flex-col justify-between" style={{ pointerEvents: 'none' }}>
+                  <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-b from-black/60 to-transparent" style={{ pointerEvents: 'none' }}>
+                    <div />
+                    <div className="flex items-center gap-2 text-white text-sm font-mono">
+                      <span id="watch-current-time">0:00</span>
+                      <span className="text-white/50">/</span>
+                      <span id="watch-duration">0:00</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-t from-black/60 to-transparent" style={{ pointerEvents: 'auto' }}>
+                    <div
+                      className="flex-1 h-1.5 bg-white/20 rounded-full cursor-pointer relative"
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect()
+                        const pct = (e.clientX - rect.left) / rect.width
+                        const targetTime = pct * (realDuration || videoRef.current?.duration || 0)
+                        if (targetTime > 0 && videoRef.current) {
+                          videoRef.current.currentTime = targetTime
+                        }
+                      }}
+                    >
+                      <div id="watch-progress-bar" className="absolute left-0 top-0 h-full bg-indigo-500 rounded-full" style={{ width: '0%' }} />
+                    </div>
+                  </div>
+                </div>
                 {isChannelError && (
                   <div
                     className="absolute inset-0 z-20 flex flex-col items-center justify-center"
@@ -1210,7 +1294,15 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                    <p className="text-slate-400 text-sm">Click play to start</p>
                  )}
                   {status === 'playing' && (
-                    <p className="text-green-400 text-sm">Playing</p>
+                    <>
+                      <p className="text-green-400 text-sm">Playing</p>
+                      <span className="text-slate-600 mx-1">|</span>
+                      <span className="text-slate-400 text-sm font-mono">
+                        <span id="watch-status-current">0:00</span>
+                        <span className="text-slate-600 mx-1">/</span>
+                        <span id="watch-status-duration">0:00</span>
+                      </span>
+                    </>
                   )}
                   {import.meta.env.DEV && currentType === 'channel' && (
                     <p className="text-[10px] text-slate-500 truncate">
@@ -1218,7 +1310,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                     </p>
                   )}
                 </div>
-              {status === 'playing' && categoryItems.length > 1 && (
+                {status === 'playing' && categoryItems.length > 1 && (
                 <p className="text-slate-500 text-xs hidden sm:block">↑ / ↓ arrows to change</p>
               )}
             </div>
