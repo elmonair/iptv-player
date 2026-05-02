@@ -521,8 +521,9 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     if (!targetItemId || !videoRef.current) return
 
     const source = activeSource
+    console.log('[zapTo] called with:', targetItemId, '| activeSource:', source?.type, source?.name, '| id:', source?.id)
     if (!source || source.type !== 'xtream') {
-      console.warn('[Watch] zapTo called without valid Xtream source')
+      console.warn('[zapTo] FAIL - no valid Xtream source, activeSource:', source)
       return
     }
 
