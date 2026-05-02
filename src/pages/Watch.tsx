@@ -122,7 +122,12 @@ function extractStreamId(routeType: string | null, routeId: string | undefined, 
 }
 
 export default function Watch() {
-  console.log('[Watch] COMPONENT MOUNTED')
+  const mountCountRef = useRef(0)
+  useEffect(() => {
+    mountCountRef.current++
+    console.log('[Watch] MOUNT #', mountCountRef.current)
+    return () => console.log('[Watch] UNMOUNT #', mountCountRef.current)
+  }, [])
   const { id: routeId, episodeId } = useParams<{ id: string; episodeId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
@@ -2004,17 +2009,11 @@ setSeekOffset(target)
                       <button
                         key={itemId}
                         ref={isActive ? activeItemRef : null}
-                        onClick={() => {
+onClick={() => {
                           if (item.type === 'episode') {
-                            const ep = item.data as EpisodeInfo
-                            navigate(`/watch/episode/${ep.streamId}`, {
-                              state: ep,
-                            })
-                          } else if (item.type === 'movie') {
-                            navigate(`/watch/movie/${encodeURIComponent(item.data.id)}`)
+                            playEpisode(item.data as EpisodeInfo)
                           } else {
-                            const ch = item.data as ChannelRecord
-                            navigate(`/watch/live/${encodeURIComponent(ch.id)}`)
+                            zapTo(item.data.id)
                           }
                         }}
                         className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[48px] w-full ${
