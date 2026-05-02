@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward } from 'lucide-react'
+import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Settings } from 'lucide-react'
 import mpegts from 'mpegts.js'
 import Hls from 'hls.js'
 import { db } from '../lib/db'
@@ -174,6 +174,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const [bufferedPercent, setBufferedPercent] = useState(0)
   const [isBuffering, setIsBuffering] = useState(false)
   const [seekOffset, setSeekOffset] = useState(0)
+  const [showSettings, setShowSettings] = useState(false)
+  const [audioTracks, setAudioTracks] = useState<Array<{ index: number; codec: string; language: string; title: string; channels: number; default: boolean }>>([])
+  const [subtitleTracks, setSubtitleTracks] = useState<Array<{ index: number; codec: string; language: string; title: string; default: boolean }>>([])
+  const [selectedAudio, setSelectedAudio] = useState<number | null>(null)
+  const [selectedSubtitle, setSelectedSubtitle] = useState<string>('none')
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
@@ -1266,6 +1271,67 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     fetchRealDuration()
   }, [routeType, routeId, episodeId, location])
 
+  useEffect(() => {
+    if (currentType === 'channel' || !activeSource || activeSource.type !== 'xtream') return
+    if (currentContainerExtension === 'mp4') return
+
+    async function probeTracks() {
+      const { id: streamId, type: transcodeType } = extractStreamId(routeType, routeId, episodeId)
+      if (!streamId || !transcodeType) return
+      const source = activeSource as Awaited<ReturnType<typeof getActiveSource>>
+      if (!source || source.type !== 'xtream') return
+
+      try {
+        const params = new URLSearchParams({
+          serverUrl: source.serverUrl,
+          username: source.username,
+          password: source.password,
+          ext: currentContainerExtension,
+        })
+        const res = await fetch(`/probe/${transcodeType}/${streamId}?${params}`)
+        if (!res.ok) return
+        const data = await res.json()
+        console.log('[Probe] Tracks:', data)
+        setAudioTracks(data.audioTracks || [])
+        setSubtitleTracks(data.subtitleTracks || [])
+        const defaultAudio = data.audioTracks?.find((t: { default: boolean }) => t.default) || data.audioTracks?.[0]
+        if (defaultAudio) setSelectedAudio(defaultAudio.index)
+      } catch (err) {
+        console.error('[Probe] Failed:', err)
+      }
+    }
+    probeTracks()
+  }, [currentType, activeSource, routeType, routeId, episodeId, currentContainerExtension])
+
+  const reloadWithSettings = useCallback((overrides: { audioTrack?: number; subtitleTrack?: string } = {}) => {
+    if (!videoRef.current || !activeSource || activeSource.type !== 'xtream') return
+    const { id: streamId, type: transcodeType } = extractStreamId(routeType, routeId, episodeId)
+    if (!streamId || !transcodeType) return
+
+    const audio = overrides.audioTrack ?? selectedAudio ?? 0
+    const sub = overrides.subtitleTrack ?? selectedSubtitle
+    const currentPos = (videoRef.current.currentTime || 0) + (seekOffset || 0)
+
+    const params = new URLSearchParams({
+      serverUrl: activeSource.serverUrl,
+      username: activeSource.username,
+      password: activeSource.password,
+      ext: currentContainerExtension,
+      seek: String(Math.floor(currentPos)),
+    })
+    if (audio !== null) params.set('audioTrack', String(audio))
+    if (sub !== 'none') params.set('subtitleTrack', String(sub))
+
+    const newUrl = `/transcode/${transcodeType}/${streamId}?${params}`
+    console.log('[TRACKS] Reloading with:', newUrl.replace(/password=[^&]+/, 'password=[HIDDEN]'))
+
+    setSeekOffset(currentPos)
+    setCurrentStreamUrl(newUrl)
+    videoRef.current.src = newUrl
+    videoRef.current.load()
+    videoRef.current.play().catch(() => {})
+  }, [activeSource, routeType, routeId, episodeId, currentContainerExtension, selectedAudio, selectedSubtitle, seekOffset])
+
   // Prompt 2: Controls auto-hide for VOD
   const resetControlsTimer = useCallback(() => {
     setShowControls(true)
@@ -1629,6 +1695,15 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                             />
                           </div>
                           <div className="flex-1" />
+                          {(audioTracks.length > 0 || subtitleTracks.length > 0) && (
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setShowSettings(!showSettings) }}
+                              className="text-white/70 hover:text-white p-1"
+                              aria-label="Audio & subtitle settings"
+                            >
+                              <Settings className="w-5 h-5" />
+                            </button>
+                          )}
                           <button
                              onClick={(e) => {
                                e.stopPropagation()
@@ -1647,6 +1722,71 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                           </button>
                         </div>
                       </div>
+
+                      {showSettings && (
+                        <div className="absolute bottom-full right-4 mb-2 bg-slate-900 border border-slate-700 rounded-lg p-4 min-w-[260px] z-50 shadow-xl">
+                          {audioTracks.length > 0 && (
+                            <div className="mb-4">
+                              <p className="text-xs uppercase text-slate-400 mb-2 tracking-wide">Audio</p>
+                              {audioTracks.map((track) => (
+                                <button
+                                  key={track.index}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedAudio(track.index)
+                                    reloadWithSettings({ audioTrack: track.index })
+                                  }}
+                                  className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
+                                    selectedAudio === track.index
+                                      ? 'bg-indigo-600 text-white'
+                                      : 'text-slate-300 hover:bg-slate-800'
+                                  }`}
+                                >
+                                  <span className="text-white">{track.language?.toUpperCase()}</span>
+                                  <span className="text-slate-400 ml-2">{track.title}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          {subtitleTracks.length > 0 && (
+                            <div>
+                              <p className="text-xs uppercase text-slate-400 mb-2 tracking-wide">Subtitles</p>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setSelectedSubtitle('none')
+                                  reloadWithSettings({ subtitleTrack: 'none' })
+                                }}
+                                className={`w-full text-left px-3 py-2 rounded text-sm transition-colors mb-1 ${
+                                  selectedSubtitle === 'none'
+                                    ? 'bg-indigo-600 text-white'
+                                    : 'text-slate-300 hover:bg-slate-800'
+                                }`}
+                              >
+                                Off
+                              </button>
+                              {subtitleTracks.map((track) => (
+                                <button
+                                  key={track.index}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedSubtitle(String(track.index))
+                                    reloadWithSettings({ subtitleTrack: String(track.index) })
+                                  }}
+                                  className={`w-full text-left px-3 py-2 rounded text-sm transition-colors mb-1 ${
+                                    selectedSubtitle === String(track.index)
+                                      ? 'bg-indigo-600 text-white'
+                                      : 'text-slate-300 hover:bg-slate-800'
+                                  }`}
+                                >
+                                  <span className="text-white">{track.language?.toUpperCase()}</span>
+                                  <span className="text-slate-400 ml-2">{track.title}</span>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </>
                 )}
