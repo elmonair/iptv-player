@@ -792,6 +792,18 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
         player.load()
 
+        // Detect black screen: if no video frames after 5s, show error overlay
+        const noFramesTimeout = setTimeout(() => {
+          if (!currentStreamUrlRef.current) return
+          const v = videoRef.current
+          if (v && v.readyState < 2) {
+            console.warn('[Channel] No video data after 5s, triggering error overlay')
+            handleChannelUnavailableRef.current('Channel not responding')
+          }
+        }, 5000)
+        videoEl.addEventListener('playing', () => clearTimeout(noFramesTimeout), { once: true })
+        videoEl.addEventListener('error', () => clearTimeout(noFramesTimeout), { once: true })
+
         videoEl.oncanplay = async () => {
           if (videoEl.videoWidth && videoEl.videoHeight) {
             setVideoInfo((prev) => ({
@@ -1043,10 +1055,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
     channelErrorTimeoutRef.current = setTimeout(() => {
       if (!currentStreamUrlRef.current) return
+      console.warn('[Channel] Showing error overlay:', message)
       setStatus('error')
       setErrorMsg(message)
       startAutoAdvanceTimer()
-    }, 3000)
+    }, 1000)
   }, [startAutoAdvanceTimer])
 
   handleChannelUnavailableRef.current = handleChannelUnavailable
