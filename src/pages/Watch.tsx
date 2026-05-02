@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart } from 'lucide-react'
+import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward } from 'lucide-react'
 import mpegts from 'mpegts.js'
 import Hls from 'hls.js'
 import { db } from '../lib/db'
@@ -8,7 +8,7 @@ import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
 import { useFavoritesStore } from '../stores/favoritesStore'
 import { useWatchHistoryStore } from '../stores/watchHistoryStore'
-import { getSeriesInfo } from '../lib/xtream'
+import { getSeriesInfo, getVodInfo } from '../lib/xtream'
 import { getEpgForChannel } from '../lib/epgParser'
 import type { ChannelRecord, MovieRecord } from '../lib/db'
 import type { EpgProgram } from '../lib/epgParser'
@@ -151,6 +151,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const [autoAdvanceSeconds, setAutoAdvanceSeconds] = useState<number | null>(null)
   const [channelEpg, setChannelEpg] = useState<Record<string, EpgProgram | null>>({})
   const [realDuration, setRealDuration] = useState<number>(0)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [isMuted, setIsMuted] = useState(false)
+  const [volume, setVolume] = useState(1)
+  const [showControls, setShowControls] = useState(true)
+  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
@@ -873,32 +878,76 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         return
       }
 
-      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-        e.preventDefault()
-        const items = categoryItemsRef.current
-        if (items.length === 0) return
+      // Arrow keys ONLY for live channels (zapping)
+      if (currentType === 'channel') {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault()
+          const items = categoryItemsRef.current
+          if (items.length === 0) return
 
-        let nextIndex: number
-        if (e.key === 'ArrowUp') {
-          nextIndex = categoryIndexRef.current > 0
-            ? categoryIndexRef.current - 1
-            : items.length - 1
-        } else {
-          nextIndex = categoryIndexRef.current < items.length - 1
-            ? categoryIndexRef.current + 1
-            : 0
+          let nextIndex: number
+          if (e.key === 'ArrowUp') {
+            nextIndex = categoryIndexRef.current > 0
+              ? categoryIndexRef.current - 1
+              : items.length - 1
+          } else {
+            nextIndex = categoryIndexRef.current < items.length - 1
+              ? categoryIndexRef.current + 1
+              : 0
+          }
+
+          const nextItem = items[nextIndex]
+          if (!nextItem) return
+          categoryIndexRef.current = nextIndex
+          zapTo(nextItem.data.id)
         }
+      }
 
-        const nextItem = items[nextIndex]
-        if (!nextItem) return
-        categoryIndexRef.current = nextIndex
-        zapTo(nextItem.data.id)
+      // VOD keyboard controls (movies and episodes)
+      if (currentType === 'movie' || currentType === 'episode') {
+        if (e.key === ' ') {
+          e.preventDefault()
+          if (videoRef.current) {
+            if (videoRef.current.paused) {
+              videoRef.current.play().catch(() => {})
+            } else {
+              videoRef.current.pause()
+            }
+          }
+        }
+        if (e.key === 'ArrowLeft') {
+          e.preventDefault()
+          if (videoRef.current) {
+            videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10)
+          }
+        }
+        if (e.key === 'ArrowRight') {
+          e.preventDefault()
+          if (videoRef.current && realDuration > 0) {
+            videoRef.current.currentTime = Math.min(realDuration, videoRef.current.currentTime + 10)
+          }
+        }
+        if (e.key === 'f' || e.key === 'F') {
+          e.preventDefault()
+          if (!document.fullscreenElement) {
+            document.documentElement.requestFullscreen().catch(() => {})
+          } else {
+            document.exitFullscreen().catch(() => {})
+          }
+        }
+        if (e.key === 'm' || e.key === 'M') {
+          e.preventDefault()
+          if (videoRef.current) {
+            videoRef.current.muted = !videoRef.current.muted
+            setIsMuted(videoRef.current.muted)
+          }
+        }
       }
     }
 
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [zapTo, handleUpBack])
+  }, [zapTo, handleUpBack, currentType, realDuration])
 
   useEffect(() => {
     const handler = () => {
@@ -1046,6 +1095,71 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     }
   }, [routeId, routeType, episodeId, navigate, zapTo, playEpisode, destroyPlayer, location])
 
+  // Prompt 1: Always fetch real duration on mount for VOD content
+  useEffect(() => {
+    async function fetchRealDuration() {
+      const source = usePlaylistStore.getState().getActiveSource()
+      if (!source || source.type !== 'xtream') return
+
+      try {
+        if (routeType === 'movie' && routeId) {
+          const match = routeId.match(/movie-(\d+)/)
+          if (match) {
+            const info = await getVodInfo(source.serverUrl, {
+              username: source.username,
+              password: source.password,
+            }, match[1])
+            const dur = Number(info?.info?.duration_secs) || 0
+            if (dur > 0) {
+              console.log('[Watch] Fetched movie duration:', dur, 'seconds')
+              setRealDuration(dur)
+            }
+          }
+        } else if (routeType === 'episode' && episodeId && location.state) {
+          const episodeState = location.state as EpisodeInfo
+          if (episodeState.seriesId) {
+            const seriesInfo = await getSeriesInfo(source.serverUrl, {
+              username: source.username,
+              password: source.password,
+            }, episodeState.seriesId)
+            let foundEpisode: { info?: { duration_secs?: number | string } } | null = null
+            for (const season of Object.values(seriesInfo?.episodes ?? {})) {
+              if (Array.isArray(season)) {
+                const ep = (season as Array<{ id: string | number; info?: { duration_secs?: number | string } }>).find(e => String(e.id) === String(episodeId))
+                if (ep) { foundEpisode = ep; break }
+              }
+            }
+            const dur = Number(foundEpisode?.info?.duration_secs) || 0
+            if (dur > 0) {
+              console.log('[Watch] Fetched episode duration:', dur, 'seconds')
+              setRealDuration(dur)
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Watch] Failed to fetch real duration:', err)
+      }
+    }
+    fetchRealDuration()
+  }, [routeType, routeId, episodeId, location])
+
+  // Prompt 2: Controls auto-hide for VOD
+  const resetControlsTimer = useCallback(() => {
+    setShowControls(true)
+    if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
+    controlsTimeoutRef.current = setTimeout(() => {
+      if (videoRef.current && !videoRef.current.paused) {
+        setShowControls(false)
+      }
+    }, 3000)
+  }, [])
+
+  useEffect(() => {
+    return () => {
+      if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
+    }
+  }, [])
+
   return (
     <div className="h-[100dvh] overflow-hidden bg-slate-950 flex flex-col select-none">
       {/* Top Navigation Bar - Fixed height 56px */}
@@ -1144,7 +1258,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
           <div className={`${currentType === 'movie' ? 'flex-shrink-0 lg:flex-1' : 'flex-1'} flex flex-col overflow-hidden min-h-0`}>
             {/* Video Container - flex-1 to take remaining space */}
             <div className="flex-1 min-h-0 overflow-hidden p-2">
-              <div className="relative w-full h-full flex items-center justify-center bg-black rounded border-slate-700">
+              <div
+                className="relative w-full h-full flex items-center justify-center bg-black rounded border-slate-700"
+                onMouseMove={currentType !== 'channel' ? resetControlsTimer : undefined}
+                onMouseLeave={currentType !== 'channel' ? () => { if (videoRef.current && !videoRef.current.paused) setShowControls(false) } : undefined}
+              >
                 <video
                   ref={videoRef}
                   playsInline
@@ -1164,38 +1282,197 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                     if (durEl) durEl.textContent = formatTime(dd)
                     if (statCur) statCur.textContent = formatTime(ct)
                     if (statDur) statDur.textContent = formatTime(dd)
+                    // Track buffered (stored in bar element title for debugging if needed)
+                    if (videoEl.buffered.length > 0) {
+                      const buffered = videoEl.buffered.end(videoEl.buffered.length - 1)
+                      void buffered // used in DOM update below
+                      const bufPct = dd > 0 ? (buffered / dd) * 100 : 0
+                      const bufBar = document.getElementById('watch-buffered-bar') as HTMLDivElement | null
+                      if (bufBar) bufBar.style.width = `${bufPct}%`
+                    }
                   }}
+                  onPlay={() => setIsPlaying(true)}
+                  onPause={() => setIsPlaying(false)}
                   onLoadedMetadata={(e) => {
                     const dd = realDuration || e.currentTarget.duration || 0
                     const durEl = document.getElementById('watch-duration')
                     if (durEl) durEl.textContent = formatTime(dd)
                   }}
+                  onClick={() => {
+                    if (videoRef.current) {
+                      if (videoRef.current.paused) {
+                        videoRef.current.play().catch(() => {})
+                      } else {
+                        videoRef.current.pause()
+                      }
+                    }
+                  }}
                 />
-                <div className="absolute inset-0 flex flex-col justify-between" style={{ pointerEvents: 'none' }}>
-                  <div className="flex items-center justify-between px-4 py-3 bg-gradient-to-b from-black/60 to-transparent" style={{ pointerEvents: 'none' }}>
-                    <div />
-                    <div className="flex items-center gap-2 text-white text-sm font-mono">
-                      <span id="watch-current-time">0:00</span>
-                      <span className="text-white/50">/</span>
-                      <span id="watch-duration">0:00</span>
+
+                {/* VOD CONTROLS OVERLAY - only for movies/episodes */}
+                {currentType !== 'channel' && (
+                  <div
+                    className={`absolute inset-0 flex flex-col justify-between transition-opacity duration-300 ${showControls ? 'opacity-100' : 'opacity-0 pointer-events-none'}`}
+                    style={{ pointerEvents: showControls ? 'auto' : 'none' }}
+                  >
+                    {/* Top gradient + title */}
+                    <div className="flex items-start justify-between px-4 py-3 bg-gradient-to-b from-black/80 to-transparent">
+                      <span className="text-white text-sm font-medium truncate max-w-[60%]">{itemName}</span>
+                      <div className="flex items-center gap-2 text-white text-sm font-mono">
+                        <span id="watch-current-time">0:00</span>
+                        <span className="text-white/50">/</span>
+                        <span id="watch-duration">0:00</span>
+                      </div>
+                    </div>
+
+                    {/* Center play/pause button */}
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (videoRef.current) {
+                            if (videoRef.current.paused) {
+                              videoRef.current.play().catch(() => {})
+                            } else {
+                              videoRef.current.pause()
+                            }
+                          }
+                        }}
+                        className="w-16 h-16 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center transition-colors"
+                      >
+                        {isPlaying ? (
+                          <Pause className="w-8 h-8 text-white" />
+                        ) : (
+                          <Play className="w-8 h-8 text-white ml-1" />
+                        )}
+                      </button>
+                    </div>
+
+                    {/* Bottom controls */}
+                    <div className="px-4 py-3 bg-gradient-to-t from-black/90 to-transparent">
+                      {/* Seek bar */}
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className="text-xs text-white/60 w-10 text-right">0:00</span>
+                        <div
+                          className="flex-1 h-1.5 bg-white/20 rounded-full cursor-pointer relative group"
+                          onClick={(e) => {
+                            const rect = e.currentTarget.getBoundingClientRect()
+                            const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
+                            const targetTime = pct * (realDuration || videoRef.current?.duration || 0)
+                            if (targetTime > 0 && videoRef.current) {
+                              videoRef.current.currentTime = targetTime
+                            }
+                          }}
+                        >
+                          <div className="absolute inset-0 bg-white/10 rounded-full" />
+                          <div
+                            id="watch-buffered-bar"
+                            className="absolute left-0 top-0 h-full bg-white/30 rounded-full"
+                            style={{ width: '0%' }}
+                          />
+                          <div
+                            id="watch-progress-bar"
+                            className="absolute left-0 top-0 h-full bg-indigo-500 rounded-full"
+                            style={{ width: '0%' }}
+                          />
+                        </div>
+                        <span className="text-xs text-white/60 w-10">
+                          {formatTime(realDuration || videoRef.current?.duration || 0)}
+                        </span>
+                      </div>
+
+                      {/* Bottom row */}
+                      <div className="flex items-center gap-3">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (videoRef.current) videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10)
+                          }}
+                          className="text-white/70 hover:text-white p-1"
+                          aria-label="Rewind 10s"
+                        >
+                          <SkipBack className="w-5 h-5" />
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (videoRef.current) {
+                              if (videoRef.current.paused) {
+                                videoRef.current.play().catch(() => {})
+                              } else {
+                                videoRef.current.pause()
+                              }
+                            }
+                          }}
+                          className="text-white/70 hover:text-white p-1"
+                          aria-label={isPlaying ? 'Pause' : 'Play'}
+                        >
+                          {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (videoRef.current) videoRef.current.currentTime = Math.min(realDuration || videoRef.current.duration || 0, videoRef.current.currentTime + 10)
+                          }}
+                          className="text-white/70 hover:text-white p-1"
+                          aria-label="Forward 10s"
+                        >
+                          <SkipForward className="w-5 h-5" />
+                        </button>
+                        <div className="flex items-center gap-2 ml-2">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              if (videoRef.current) {
+                                videoRef.current.muted = !videoRef.current.muted
+                                setIsMuted(videoRef.current.muted)
+                              }
+                            }}
+                            className="text-white/70 hover:text-white p-1"
+                            aria-label={isMuted ? 'Unmute' : 'Mute'}
+                          >
+                            {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                          </button>
+                          <input
+                            type="range"
+                            min="0"
+                            max="1"
+                            step="0.01"
+                            value={isMuted ? 0 : volume}
+                            onChange={(e) => {
+                              const v = parseFloat(e.target.value)
+                              setVolume(v)
+                              if (videoRef.current) {
+                                videoRef.current.volume = v
+                                videoRef.current.muted = v === 0
+                                setIsMuted(v === 0)
+                              }
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                            className="w-20 h-1 accent-indigo-500 cursor-pointer"
+                          />
+                        </div>
+                        <div className="flex-1" />
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            if (!document.fullscreenElement) {
+                              document.documentElement.requestFullscreen().catch(() => {})
+                            } else {
+                              document.exitFullscreen().catch(() => {})
+                            }
+                          }}
+                          className="text-white/70 hover:text-white p-1"
+                          aria-label="Toggle fullscreen"
+                        >
+                          {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+                        </button>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-t from-black/60 to-transparent" style={{ pointerEvents: 'auto' }}>
-                    <div
-                      className="flex-1 h-1.5 bg-white/20 rounded-full cursor-pointer relative"
-                      onClick={(e) => {
-                        const rect = e.currentTarget.getBoundingClientRect()
-                        const pct = (e.clientX - rect.left) / rect.width
-                        const targetTime = pct * (realDuration || videoRef.current?.duration || 0)
-                        if (targetTime > 0 && videoRef.current) {
-                          videoRef.current.currentTime = targetTime
-                        }
-                      }}
-                    >
-                      <div id="watch-progress-bar" className="absolute left-0 top-0 h-full bg-indigo-500 rounded-full" style={{ width: '0%' }} />
-                    </div>
-                  </div>
-                </div>
+                )}
+
+                {/* Channel error overlay */}
                 {isChannelError && (
                   <div
                     className="absolute inset-0 z-20 flex flex-col items-center justify-center"
@@ -1322,9 +1599,12 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                     </p>
                   )}
                 </div>
-                {status === 'playing' && categoryItems.length > 1 && (
-                <p className="text-slate-500 text-xs hidden sm:block">↑ / ↓ arrows to change</p>
-              )}
+                {status === 'playing' && currentType === 'channel' && categoryItems.length > 1 && (
+                  <p className="text-slate-500 text-xs hidden sm:block">↑ / ↓ arrows to change channel</p>
+                )}
+                {status === 'playing' && currentType !== 'channel' && (
+                  <p className="text-slate-500 text-xs hidden sm:block">Space = play/pause · ← → = seek 10s · F = fullscreen</p>
+                )}
             </div>
           </div>
 
