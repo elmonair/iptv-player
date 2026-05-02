@@ -177,9 +177,6 @@ app.use('/transcode/:type/:streamId', async (req, res) => {
   const username = requestUrl.searchParams.get('username');
   const password = requestUrl.searchParams.get('password');
   const ext = requestUrl.searchParams.get('ext') || 'mkv';
-  const seek = requestUrl.searchParams.get('seek');
-  const audioTrack = requestUrl.searchParams.get('audioTrack');
-  const subtitleTrack = requestUrl.searchParams.get('subtitleTrack');
 
   if (!serverUrl || !username || !password) {
     return res.status(400).json({ error: 'Missing transcode parameters' });
@@ -198,7 +195,8 @@ app.use('/transcode/:type/:streamId', async (req, res) => {
   }
 
   const upstreamUrl = `${serverUrl.replace(/\/$/, '')}/${type}/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${encodeURIComponent(streamId)}.${encodeURIComponent(ext)}`;
-  console.log('[TRANSCODE] Starting:', upstreamUrl.replace(/password=[^&]+/, 'password=[HIDDEN]'), seek ? `seek=${seek}s` : 'no seek', audioTrack !== null ? `audio=${audioTrack}` : 'default audio', subtitleTrack !== null && subtitleTrack !== 'none' ? `subtitles=${subtitleTrack}` : '');
+  const seek = requestUrl.searchParams.get('seek');
+  console.log('[TRANSCODE] Starting:', upstreamUrl.replace(/password=[^&]+/, 'password=[HIDDEN]'), seek ? `seek=${seek}s` : 'no seek');
 
   const ffmpegArgs = [
     '-hide_banner',
@@ -209,23 +207,12 @@ app.use('/transcode/:type/:streamId', async (req, res) => {
     ffmpegArgs.push('-ss', String(Math.floor(Number(seek))));
   }
 
-  ffmpegArgs.push('-i', upstreamUrl);
-
-  if (audioTrack !== null && audioTrack !== undefined) {
-    ffmpegArgs.push('-map', `0:${audioTrack}`, '-map', '0:v:0');
-  } else {
-    ffmpegArgs.push('-c:v', 'copy');
-  }
-
-  ffmpegArgs.push('-c:a', 'aac', '-b:a', '192k', '-ac', '2');
-
-  if (subtitleTrack && subtitleTrack !== 'none') {
-    ffmpegArgs.splice(ffmpegArgs.indexOf('-c:v'), 1);
-    ffmpegArgs.push('-c:v', 'libx264', '-preset', 'veryfast', '-crf', '23');
-    ffmpegArgs.push('-vf', `subtitles='${upstreamUrl}:si=${subtitleTrack}`);
-  }
-
   ffmpegArgs.push(
+    '-i', upstreamUrl,
+    '-c:v', 'copy',
+    '-c:a', 'aac',
+    '-b:a', '192k',
+    '-ac', '2',
     '-movflags', '+frag_keyframe+empty_moov+default_base_moof+faststart',
     '-f', 'mp4',
     'pipe:1'
@@ -261,88 +248,6 @@ app.use('/transcode/:type/:streamId', async (req, res) => {
   });
 
   ffmpeg.stdout.pipe(res);
-});
-
-app.get('/probe/:type/:streamId', (req, res) => {
-  const { type, streamId } = req.params;
-  const requestUrl = new URL(req.url, 'http://localhost:' + PORT);
-  const serverUrl = requestUrl.searchParams.get('serverUrl');
-  const username = requestUrl.searchParams.get('username');
-  const password = requestUrl.searchParams.get('password');
-  const ext = requestUrl.searchParams.get('ext') || 'mkv';
-
-  if (!serverUrl || !username || !password) {
-    return res.status(400).json({ error: 'Missing params' });
-  }
-
-  if (!ffmpegAvailable) {
-    return res.status(503).json({ error: 'FFmpeg not available' });
-  }
-
-  const upstreamUrl = `${serverUrl.replace(/\/$/, '')}/${type}/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${encodeURIComponent(streamId)}.${encodeURIComponent(ext)}`;
-
-  const ffprobe = spawn('ffprobe', [
-    '-v', 'quiet',
-    '-print_format', 'json',
-    '-show_streams',
-    '-show_format',
-    '-analyzeduration', '5000000',
-    '-probesize', '5000000',
-    upstreamUrl
-  ]);
-
-  let output = '';
-  let errorOutput = '';
-
-  ffprobe.stdout.on('data', d => output += d.toString());
-  ffprobe.stderr.on('data', d => errorOutput += d.toString());
-
-  const timeout = setTimeout(() => {
-    ffprobe.kill('SIGKILL');
-    if (!res.headersSent) res.status(504).json({ error: 'Probe timeout' });
-  }, 15000);
-
-  ffprobe.on('close', code => {
-    clearTimeout(timeout);
-    if (code !== 0) {
-      console.error('[PROBE] ffprobe failed:', errorOutput);
-      return res.status(500).json({ error: 'Probe failed', stderr: errorOutput });
-    }
-
-    try {
-      const data = JSON.parse(output);
-
-      const audioTracks = data.streams
-        .filter(s => s.codec_type === 'audio')
-        .map((s, i) => ({
-          index: s.index,
-          codec: s.codec_name,
-          language: s.tags?.language || 'unknown',
-          title: s.tags?.title || `Audio ${i + 1}`,
-          channels: s.channels,
-          default: s.disposition?.default === 1
-        }));
-
-      const subtitleTracks = data.streams
-        .filter(s => s.codec_type === 'subtitle')
-        .map((s, i) => ({
-          index: s.index,
-          codec: s.codec_name,
-          language: s.tags?.language || 'unknown',
-          title: s.tags?.title || `Subtitle ${i + 1}`,
-          default: s.disposition?.default === 1
-        }));
-
-      res.json({
-        duration: Number(data.format?.duration) || 0,
-        audioTracks,
-        subtitleTracks
-      });
-    } catch (err) {
-      console.error('[PROBE] Parse failed:', err);
-      res.status(500).json({ error: 'Parse failed' });
-    }
-  });
 });
 
 app.use('/proxy/image', async (req, res) => {
@@ -406,7 +311,7 @@ app.use('/api/xmltv', async (req, res) => {
 app.use(express.static(distPath));
 
 app.get(/.*/, (req, res) => {
-  if (req.path.startsWith('/api/') || req.path.startsWith('/proxy/') || req.path.startsWith('/transcode') || req.path.startsWith('/probe')) {
+  if (req.path.startsWith('/api/') || req.path.startsWith('/proxy/') || req.path.startsWith('/transcode')) {
     return res.status(404).json({ error: 'Not found' });
   }
   res.sendFile(path.join(distPath, 'index.html'));
