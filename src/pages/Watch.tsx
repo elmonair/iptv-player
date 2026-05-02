@@ -269,13 +269,14 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
     const saveProgress = () => {
       if (!videoRef.current || !activeSource) return
-      const currentTime = videoRef.current.currentTime
-      const duration = videoRef.current.duration
-      updateWatchProgress(itemType, itemId, activeSource.id, currentTime, duration)
+      const rawTime = videoRef.current.currentTime
+      const ct = rawTime + seekOffset
+      const duration = realDuration || videoRef.current.duration
+      updateWatchProgress(itemType, itemId, activeSource.id, ct, duration)
     }
 
     progressIntervalRef.current = setInterval(saveProgress, 10000)
-  }, [activeSource, updateWatchProgress])
+  }, [activeSource, updateWatchProgress, seekOffset, realDuration])
 
   const handleLoadedMetadata = useCallback(async (savedProgress?: { position: number } | null) => {
     if (hasResumedRef.current) return
@@ -505,8 +506,16 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setupVideoSource(videoEl, streamUrl)
 
     const episodeId = String(episodeInfo.streamId)
-    const history = getWatchHistory()
-    const savedProgress = history.find(h => h.itemType === 'episode' && h.itemId === episodeId)
+    let savedProgress: { position: number } | null = null
+    try {
+      const dbRecord = await db.watchHistory.where('id').equals(`episode:${episodeId}`).first()
+      if (dbRecord && dbRecord.position > 0) {
+        savedProgress = { position: dbRecord.position }
+        console.log('[Watch] Found saved progress for episode:', dbRecord.position)
+      }
+    } catch (err) {
+      console.error('[Watch] Failed to query episode watch history:', err)
+    }
 
     if (savedProgress && savedProgress.position > 0) {
       console.log('[Watch] Found saved progress for episode:', savedProgress.position)
@@ -788,8 +797,16 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       setupVideoSource(videoEl, streamUrl)
 
       const movieId = (item.data as MovieRecord).id
-      const history = getWatchHistory()
-      const savedProgress = history.find(h => h.itemType === 'movie' && h.itemId === movieId)
+      let savedProgress: { position: number } | null = null
+      try {
+        const dbRecord = await db.watchHistory.where('id').equals(`movie:${movieId}`).first()
+        if (dbRecord && dbRecord.position > 0) {
+          savedProgress = { position: dbRecord.position }
+          console.log('[Watch] Found saved progress for movie:', dbRecord.position)
+        }
+      } catch (err) {
+        console.error('[Watch] Failed to query watch history:', err)
+      }
 
       videoEl.onloadedmetadata = () => {
         handleLoadedMetadata(savedProgress)
@@ -973,22 +990,19 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         }
         if (e.key === 'ArrowLeft') {
           e.preventDefault()
-          if (videoRef.current) {
-            videoRef.current.currentTime = Math.max(0, videoRef.current.currentTime - 10)
-          }
+          handleSkip(-10)
         }
         if (e.key === 'ArrowRight') {
           e.preventDefault()
-          if (videoRef.current && realDuration > 0) {
-            videoRef.current.currentTime = Math.min(realDuration, videoRef.current.currentTime + 10)
-          }
+          handleSkip(10)
         }
         if (e.key === 'f' || e.key === 'F') {
           e.preventDefault()
+          const container = videoContainerRef.current
           if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen().catch(() => {})
+            container?.requestFullscreen?.().catch(() => {})
           } else {
-            document.exitFullscreen().catch(() => {})
+            document.exitFullscreen?.().catch(() => {})
           }
         }
         if (e.key === 'm' || e.key === 'M') {
@@ -1003,7 +1017,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [zapTo, handleUpBack, currentType, realDuration])
+  }, [zapTo, handleUpBack, handleSkip, currentType])
 
   useEffect(() => {
     const handler = () => {
@@ -1219,15 +1233,16 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   useEffect(() => {
     if (currentType === 'channel' || !videoRef.current) return
     return () => {
-      const ct = videoRef.current?.currentTime || 0
-      const dur = videoRef.current?.duration || 0
+      const rawTime = videoRef.current?.currentTime || 0
+      const ct = rawTime + seekOffset
+      const dur = realDuration || videoRef.current?.duration || 0
       const itemId = currentType === 'movie' ? routeId : episodeId
       if (ct > 5 && dur > 0) {
-        console.log('[Watch] Saving progress on unmount:', ct, '/', dur)
+        console.log('[Watch] Saving progress on unmount:', ct, '/', dur, 'seekOffset:', seekOffset)
         updateWatchProgress(currentType as 'movie' | 'episode', itemId || '', activeSource?.id || '', ct, dur)
       }
     }
-  }, [currentType, routeId, episodeId, activeSource?.id, updateWatchProgress])
+  }, [currentType, routeId, episodeId, activeSource?.id, updateWatchProgress, seekOffset, realDuration])
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-slate-950 flex flex-col select-none">
@@ -1330,6 +1345,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
               <div
                 ref={videoContainerRef}
                 className="relative w-full h-full flex items-center justify-center bg-black rounded border-slate-700"
+                style={isFullscreen ? { width: '100vw', height: '100vh', borderRadius: 0 } : undefined}
                 onMouseMove={currentType !== 'channel' ? resetControlsTimer : undefined}
                 onMouseLeave={currentType !== 'channel' ? () => { if (videoRef.current && !videoRef.current.paused) setShowControls(false) } : undefined}
               >
@@ -1561,17 +1577,19 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                           </div>
                           <div className="flex-1" />
                           <button
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              if (!document.fullscreenElement) {
-                                document.documentElement.requestFullscreen().catch(() => {})
-                              } else {
-                                document.exitFullscreen().catch(() => {})
-                              }
-                            }}
-                            className="text-white/70 hover:text-white p-1"
-                            aria-label="Toggle fullscreen"
-                          >
+                             onClick={(e) => {
+                               e.stopPropagation()
+                               const container = videoContainerRef.current
+                               if (!container) return
+                               if (!document.fullscreenElement) {
+                                 container.requestFullscreen?.().catch(() => {})
+                               } else {
+                                 document.exitFullscreen?.().catch(() => {})
+                               }
+                             }}
+                             className="text-white/70 hover:text-white p-1"
+                             aria-label="Toggle fullscreen"
+                           >
                             {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
                           </button>
                         </div>
