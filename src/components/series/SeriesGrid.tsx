@@ -66,11 +66,7 @@ export default function SeriesGrid({ sourceId, selectedCategoryId, onSeriesClick
       }
       const result = await query
       const safeResult = Array.isArray(result) ? result : []
-      return safeResult.sort((a, b) => {
-        const nameA = a?.name ?? ''
-        const nameB = b?.name ?? ''
-        return nameA.localeCompare(nameB)
-      })
+      return safeResult
     },
     [sourceId, selectedCategoryId],
   )

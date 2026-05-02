@@ -80,7 +80,7 @@ export default function ChannelGrid({ sourceId, selectedCategoryId, onChannelCli
         query = db.channels.where('sourceId').equals(sourceId).toArray()
       }
       const result = await query
-      return result.sort((a, b) => a.name.localeCompare(b.name))
+      return result
     },
     [sourceId, selectedCategoryId],
   )

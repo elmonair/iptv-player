@@ -1243,9 +1243,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         const channelItems: WatchableItem[] = channels.map((c) => ({ type: 'channel' as const, data: c }))
         const movieItems: WatchableItem[] = movies.map((m) => ({ type: 'movie' as const, data: m }))
 
-        const allItems: WatchableItem[] = [...channelItems, ...movieItems].sort((a, b) =>
-          getItemName(a).localeCompare(getItemName(b))
-        )
+        const allItems: WatchableItem[] = [...channelItems, ...movieItems]
         allItemsRef.current = allItems
 
         const now = Math.floor(Date.now() / 1000)

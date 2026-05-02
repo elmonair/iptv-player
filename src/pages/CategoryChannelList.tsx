@@ -39,7 +39,7 @@ export default function CategoryChannelList() {
         query = db.channels.where('sourceId').equals(activeSource.id).toArray()
       }
       const result = await query
-      return result.sort((a, b) => a.name.localeCompare(b.name))
+      return result
     },
     [activeSource, categoryId],
   )

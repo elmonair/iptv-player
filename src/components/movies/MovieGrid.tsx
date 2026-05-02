@@ -65,7 +65,7 @@ export default function MovieGrid({ sourceId, selectedCategoryId, onMovieClick, 
         query = db.movies.where('sourceId').equals(sourceId).toArray()
       }
       const result = await query
-      return result.sort((a, b) => a.name.localeCompare(b.name))
+      return result
     },
     [sourceId, selectedCategoryId],
   )
