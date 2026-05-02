@@ -147,6 +147,9 @@ export default function Watch() {
   const activeItemRef = useRef<HTMLButtonElement>(null)
   const hasResumedRef = useRef(false)
   const seekInProgressRef = useRef(false)
+  const lastChannelTimeRef = useRef(0)
+  const stuckCheckRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const channelLoadTimeRef = useRef<number>(0)
   const allEpisodesRef = useRef<EpisodeInfo['allEpisodes']>([])
   const currentSeriesIdRef = useRef<string>('')
   const currentSeriesNameRef = useRef<string>('')
@@ -277,6 +280,12 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       clearTimeout(channelErrorTimeoutRef.current)
       channelErrorTimeoutRef.current = null
     }
+    if (stuckCheckRef.current) {
+      clearInterval(stuckCheckRef.current)
+      stuckCheckRef.current = null
+    }
+    lastChannelTimeRef.current = 0
+    channelLoadTimeRef.current = 0
   }, [])
 
   const startProgressTracking = useCallback((itemType: 'channel' | 'movie' | 'episode', itemId: string) => {
@@ -792,17 +801,40 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
         player.load()
 
-        // Detect black screen: if no video frames after 5s, show error overlay
-        const noFramesTimeout = setTimeout(() => {
-          if (!currentStreamUrlRef.current) return
+        // Start stuck-time detection for this channel
+        lastChannelTimeRef.current = 0
+        channelLoadTimeRef.current = Date.now()
+        if (stuckCheckRef.current) clearInterval(stuckCheckRef.current)
+        stuckCheckRef.current = setInterval(() => {
           const v = videoRef.current
-          if (v && v.readyState < 2) {
-            console.warn('[Channel] No video data after 5s, triggering error overlay')
+          if (!v || !currentStreamUrlRef.current) return
+          const ct = v.currentTime
+          const elapsed = (Date.now() - channelLoadTimeRef.current) / 1000
+
+          if (elapsed > 8 && ct === 0) {
+            console.warn('[StuckCheck] No playback after 8s — currentTime still 0')
             handleChannelUnavailableRef.current('Channel not responding')
+            return
           }
-        }, 5000)
-        videoEl.addEventListener('playing', () => clearTimeout(noFramesTimeout), { once: true })
-        videoEl.addEventListener('error', () => clearTimeout(noFramesTimeout), { once: true })
+          if (ct > 3 && v.videoWidth === 0) {
+            console.warn('[StuckCheck] No video frames — videoWidth is 0, currentTime:', ct)
+            handleChannelUnavailableRef.current('Channel not responding')
+            return
+          }
+          if (!v.paused && lastChannelTimeRef.current > 0 && ct === lastChannelTimeRef.current) {
+            console.warn('[StuckCheck] Video stuck — time not progressing, currentTime:', ct)
+            handleChannelUnavailableRef.current('Channel stalled')
+            return
+          }
+          lastChannelTimeRef.current = ct
+        }, 3000)
+
+        videoEl.addEventListener('playing', () => {
+          if (stuckCheckRef.current) { clearInterval(stuckCheckRef.current); stuckCheckRef.current = null }
+        }, { once: true })
+        videoEl.addEventListener('error', () => {
+          if (stuckCheckRef.current) { clearInterval(stuckCheckRef.current); stuckCheckRef.current = null }
+        }, { once: true })
 
         videoEl.oncanplay = async () => {
           if (videoEl.videoWidth && videoEl.videoHeight) {
@@ -831,6 +863,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         videoEl.onplaying = () => {
           clearChannelErrorTimeout()
           clearAutoAdvanceTimer()
+          if (stuckCheckRef.current) { clearInterval(stuckCheckRef.current); stuckCheckRef.current = null }
           setStatus('playing')
           setLastChannelId(item.data.id)
           statsIntervalRef.current = setInterval(() => {
