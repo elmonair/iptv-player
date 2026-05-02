@@ -508,6 +508,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setCurrentStreamUrl(streamUrl)
 
     const videoEl = videoRef.current
+    if (!videoEl) {
+      console.warn('[Watch] videoRef not ready after await, skipping playEpisode')
+      return
+    }
 
     const episodeId = String(episodeInfo.streamId)
     let savedProgress: { position: number } | null = null
@@ -519,6 +523,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       }
     } catch (err) {
       console.error('[Watch] Failed to query episode watch history:', err)
+    }
+
+    if (!videoRef.current) {
+      console.warn('[Watch] videoRef not ready after Dexie await, skipping episode setup')
+      return
     }
 
     if (savedProgress && savedProgress.position > 30) {
@@ -653,6 +662,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       setCategoryName('Unknown')
     }
 
+    if (!videoRef.current) {
+      console.warn('[Watch] videoRef not ready after await, aborting zapTo')
+      return
+    }
+
     const streamUrl = buildStreamUrl(source, item)
 
     if (!streamUrl) {
@@ -667,6 +681,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setCurrentStreamUrl(streamUrl)
 
     const videoEl = videoRef.current
+    if (!videoEl) {
+      console.warn('[Watch] videoRef not ready after await, skipping zapTo')
+      return
+    }
 
     if (item.type === 'channel') {
       if (mpegts.isSupported()) {
@@ -819,6 +837,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         }
       } catch (err) {
         console.error('[Watch] Failed to query watch history:', err)
+      }
+
+      if (!videoRef.current) {
+        console.warn('[Watch] videoRef not ready after movie resume await, aborting zapTo')
+        return
       }
 
       if (savedProgress && savedProgress.position > 30) {
@@ -999,7 +1022,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
   useEffect(() => {
     hasResumedRef.current = false
-  }, [currentItemId])
+  }, [currentItemId, routeId, episodeId])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
