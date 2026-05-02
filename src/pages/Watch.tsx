@@ -503,26 +503,35 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setCurrentStreamUrl(streamUrl)
 
     const videoEl = videoRef.current
-    setupVideoSource(videoEl, streamUrl)
 
     const episodeId = String(episodeInfo.streamId)
     let savedProgress: { position: number } | null = null
     try {
       const dbRecord = await db.watchHistory.where('id').equals(`episode:${episodeId}`).first()
+      console.log('[RESUME] Dexie query for episode:', episodeId, 'result:', dbRecord ? `position=${dbRecord.position}` : 'not found')
       if (dbRecord && dbRecord.position > 0) {
         savedProgress = { position: dbRecord.position }
-        console.log('[Watch] Found saved progress for episode:', dbRecord.position)
       }
     } catch (err) {
       console.error('[Watch] Failed to query episode watch history:', err)
     }
 
-    if (savedProgress && savedProgress.position > 0) {
-      console.log('[Watch] Found saved progress for episode:', savedProgress.position)
-    }
-
-    videoEl.onloadedmetadata = () => {
-      handleLoadedMetadata(savedProgress)
+    if (savedProgress && savedProgress.position > 30) {
+      const resumeUrl = buildTranscodeUrl(source, String(episodeInfo.streamId), episodeInfo.containerExtension || 'mkv', 'series', savedProgress.position)
+      console.log('[RESUME] Starting episode directly with transcode URL, seek:', savedProgress.position, 'URL:', resumeUrl)
+      setSeekOffset(savedProgress.position)
+      setCurrentContainerExtension(episodeInfo.containerExtension || 'mkv')
+      setCurrentStreamUrl(resumeUrl)
+      currentStreamUrlRef.current = resumeUrl
+      setupVideoSource(videoEl, resumeUrl)
+      videoEl.onloadedmetadata = () => {
+        hasResumedRef.current = true
+      }
+    } else {
+      setupVideoSource(videoEl, streamUrl)
+      videoEl.onloadedmetadata = () => {
+        handleLoadedMetadata(savedProgress)
+      }
     }
     videoEl.oncanplay = () => {
       if (videoEl.videoWidth && videoEl.videoHeight) {
