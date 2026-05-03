@@ -305,16 +305,26 @@ app.get('/probe/:type/:streamId', (req, res) => {
   ffprobe.stdout.on('data', d => output += d.toString());
   ffprobe.stderr.on('data', d => errorOutput += d.toString());
 
+  ffprobe.on('error', (err) => {
+    console.error('[PROBE] spawn error:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'FFprobe unavailable', skip: true });
+    }
+  });
+
   const timeout = setTimeout(() => {
     ffprobe.kill('SIGKILL');
-    if (!res.headersSent) res.status(504).json({ error: 'Probe timeout' });
+    if (!res.headersSent) res.status(504).json({ error: 'Probe timeout', skip: true });
   }, 15000);
 
   ffprobe.on('close', code => {
     clearTimeout(timeout);
     if (code !== 0) {
       console.error('[PROBE] ffprobe failed:', errorOutput);
-      return res.status(500).json({ error: 'Probe failed', stderr: errorOutput });
+      if (!res.headersSent) {
+        return res.status(500).json({ error: 'Probe failed', stderr: errorOutput, skip: true });
+      }
+      return;
     }
 
     try {
@@ -348,7 +358,9 @@ app.get('/probe/:type/:streamId', (req, res) => {
       });
     } catch (err) {
       console.error('[PROBE] Parse failed:', err);
-      res.status(500).json({ error: 'Parse failed' });
+      if (!res.headersSent) {
+        res.status(500).json({ error: 'Parse failed', skip: true });
+      }
     }
   });
 });

@@ -237,7 +237,7 @@ export default function SeriesDetail() {
         streamId: episodeId,
         allEpisodes,
         returnTo: `/series/${seriesId}`,
-        realDuration: Number(episode.info?.duration_secs) || 0,
+        realDuration: Number(episode.info?.duration_secs) || Number((episode as { duration_secs?: number | string }).duration_secs) || 0,
       },
     })
   }

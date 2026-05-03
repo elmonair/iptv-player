@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useLayoutEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Settings } from 'lucide-react'
+import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Settings, AlertTriangle } from 'lucide-react'
 import mpegts from 'mpegts.js'
 import Hls from 'hls.js'
 import { db } from '../lib/db'
+import { ChannelErrorOverlay } from '../components/ChannelErrorOverlay'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
 import { useFavoritesStore } from '../stores/favoritesStore'
@@ -21,6 +22,18 @@ const formatTime = (secs: number): string => {
   const s = Math.floor(secs % 60)
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   return `${m}:${String(s).padStart(2, '0')}`
+}
+
+const parseDurationString = (str: string): number => {
+  if (!str || typeof str !== 'string') return 0
+
+  const parts = str.split(':').map((p) => parseInt(p, 10))
+  if (parts.some(Number.isNaN)) return 0
+
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
+  if (parts.length === 2) return parts[0] * 60 + parts[1]
+  if (parts.length === 1) return parts[0]
+  return 0
 }
 
 type WatchStatus = 'loading' | 'ready-click-to-play' | 'playing' | 'error'
@@ -141,19 +154,15 @@ export default function Watch() {
   const categoryIndexRef = useRef<number>(-1)
   const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const progressIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const autoAdvanceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const autoAdvanceIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const channelErrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activeItemRef = useRef<HTMLButtonElement>(null)
   const hasResumedRef = useRef(false)
   const seekInProgressRef = useRef(false)
-  const lastChannelTimeRef = useRef(0)
-  const stuckCheckRef = useRef<ReturnType<typeof setInterval> | null>(null)
-  const channelLoadTimeRef = useRef<number>(0)
   const allEpisodesRef = useRef<EpisodeInfo['allEpisodes']>([])
   const currentSeriesIdRef = useRef<string>('')
   const currentSeriesNameRef = useRef<string>('')
-  const handleChannelUnavailableRef = useRef<(message: string) => void>(() => {})
+  const prevRouteIdRef = useRef<string>('')
+  const prevEpisodeIdRef = useRef<string>('')
 
   useEffect(() => {
     return () => { console.log('[Watch] COMPONENT UNMOUNTING') }
@@ -180,9 +189,12 @@ export default function Watch() {
   const [lastVideoErrorCode, setLastVideoErrorCode] = useState<number | null>(null)
 const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const [currentContainerExtension, setCurrentContainerExtension] = useState<string>('mp4')
-  const [autoAdvanceSeconds, setAutoAdvanceSeconds] = useState<number | null>(null)
   const [channelEpg, setChannelEpg] = useState<Record<string, EpgProgram | null>>({})
   const [realDuration, setRealDuration] = useState<number>(0)
+  const [showError, setShowError] = useState(false)
+  const [vodError, setVodError] = useState(false)
+  const [streamSettled, setStreamSettled] = useState(false)
+  const [isLoadingNewContent, setIsLoadingNewContent] = useState(false)
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(false)
   const [volume, setVolume] = useState(1)
@@ -197,6 +209,21 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const [selectedAudio, setSelectedAudio] = useState<number | null>(null)
   const [selectedSubtitle, setSelectedSubtitle] = useState<string>('none')
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const vodErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const loadingNewContentRef = useRef(false)
+  const watchedItemRef = useRef<{
+    itemType: 'movie' | 'episode' | null
+    itemId: string | null
+    sourceId: string | null
+    currentTime: number
+    duration: number
+  }>({
+    itemType: null,
+    itemId: null,
+    sourceId: null,
+    currentTime: 0,
+    duration: 0,
+  })
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
@@ -219,22 +246,26 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     console.log('[Watch] Toggled favorite:', itemType, currentItemId)
   }
 
-  const clearAutoAdvanceTimer = useCallback(() => {
-    if (autoAdvanceTimeoutRef.current) {
-      clearTimeout(autoAdvanceTimeoutRef.current)
-      autoAdvanceTimeoutRef.current = null
+  const safeSetVodError = useCallback((value: boolean) => {
+    if (value && loadingNewContentRef.current) {
+      console.log('[VOD] Suppressing error during content transition')
+      return
     }
-    if (autoAdvanceIntervalRef.current) {
-      clearInterval(autoAdvanceIntervalRef.current)
-      autoAdvanceIntervalRef.current = null
-    }
-    setAutoAdvanceSeconds(null)
+    setVodError(value)
   }, [])
 
-  const clearChannelErrorTimeout = useCallback(() => {
-    if (channelErrorTimeoutRef.current) {
-      clearTimeout(channelErrorTimeoutRef.current)
-      channelErrorTimeoutRef.current = null
+  const saveWatchedItemProgress = useCallback(() => {
+    const data = watchedItemRef.current
+    if (!data.itemType || !data.itemId || !data.sourceId || data.currentTime <= 5) return
+
+    console.log('[Watch] Saving progress for', `${data.itemType}:${data.itemId}`, 'at', data.currentTime, '/', data.duration)
+    updateWatchProgress(data.itemType, data.itemId, data.sourceId, data.currentTime, data.duration)
+  }, [updateWatchProgress])
+
+  const clearErrorTimer = useCallback(() => {
+    if (errorTimerRef.current) {
+      clearTimeout(errorTimerRef.current)
+      errorTimerRef.current = null
     }
   }, [])
 
@@ -266,27 +297,13 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       clearInterval(progressIntervalRef.current)
       progressIntervalRef.current = null
     }
-    if (autoAdvanceTimeoutRef.current) {
-      clearTimeout(autoAdvanceTimeoutRef.current)
-      autoAdvanceTimeoutRef.current = null
-    }
-    if (autoAdvanceIntervalRef.current) {
-      clearInterval(autoAdvanceIntervalRef.current)
-      autoAdvanceIntervalRef.current = null
-    }
-    setAutoAdvanceSeconds(null)
     setVideoInfo(null)
-    if (channelErrorTimeoutRef.current) {
-      clearTimeout(channelErrorTimeoutRef.current)
-      channelErrorTimeoutRef.current = null
+    clearErrorTimer()
+    if (vodErrorTimerRef.current) {
+      clearTimeout(vodErrorTimerRef.current)
+      vodErrorTimerRef.current = null
     }
-    if (stuckCheckRef.current) {
-      clearInterval(stuckCheckRef.current)
-      stuckCheckRef.current = null
-    }
-    lastChannelTimeRef.current = 0
-    channelLoadTimeRef.current = 0
-  }, [])
+  }, [clearErrorTimer])
 
   const startProgressTracking = useCallback((itemType: 'channel' | 'movie' | 'episode', itemId: string) => {
     if (progressIntervalRef.current) {
@@ -497,6 +514,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setCurrentType('episode')
     setCurrentContainerExtension(episodeInfo.containerExtension || 'mkv')
     setStatus('loading')
+    setVodError(false)
     setErrorMsg(null)
     setLastVideoErrorCode(null)
     setVideoInfo(null)
@@ -591,6 +609,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     }
     videoEl.onplaying = () => {
       setStatus('playing')
+      setVodError(false)
       startProgressTracking('episode', episodeId)
     }
     videoEl.onerror = () => {
@@ -598,7 +617,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         return
       }
       console.error('[Watch] Episode video error:', videoEl.error)
-      setStatus('error')
+      safeSetVodError(true)
       const errCode = videoEl.error?.code ?? 0
       if (errCode === 4) {
         setErrorMsg('Video format not supported by browser. Copy URL for VLC.')
@@ -615,7 +634,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       if (err instanceof Error && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
         setStatus('ready-click-to-play')
       } else {
-        setStatus('error')
+        safeSetVodError(true)
         setErrorMsg(err instanceof Error ? err.message : String(err))
       }
     }
@@ -631,8 +650,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       return
     }
 
-    clearChannelErrorTimeout()
-    clearAutoAdvanceTimer()
+    clearErrorTimer()
+
     destroyPlayer()
 
     const decodedId = targetItemId.includes('%') ? decodeURIComponent(targetItemId) : targetItemId
@@ -674,6 +693,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       setCurrentContainerExtension((item.data as MovieRecord).containerExtension || 'mp4')
     }
     setStatus('loading')
+    setShowError(false)
+    setVodError(false)
     setErrorMsg(null)
     setLastVideoErrorCode(null)
     setVideoInfo(null)
@@ -742,38 +763,9 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
           }
         )
         playerRef.current = player
-        let hasRetried = false
 
         player.on(mpegts.Events.ERROR, (_type: string, _detail: string, info: { message?: string }) => {
-          if (!currentStreamUrlRef.current) return
-
-          const v = videoRef.current
-          if (v && v.readyState >= 2 && !v.paused && v.currentTime > 0) return
-
-          if (_type === mpegts.ErrorTypes.NETWORK_ERROR && !hasRetried) {
-            hasRetried = true
-            setTimeout(() => {
-              try {
-                player.unload()
-                player.load()
-                void player.play()
-              } catch {
-                handleChannelUnavailableRef.current('Channel temporarily unavailable')
-              }
-            }, 2000)
-            return
-          }
-          const message = info?.message ?? 'Player error occurred'
-          const lowerMessage = message.toLowerCase()
-          if (lowerMessage.includes('502') || lowerMessage.includes('503') || lowerMessage.includes('bad gateway')) {
-            handleChannelUnavailableRef.current('Channel temporarily unavailable')
-          } else if (lowerMessage.includes('timeout') || lowerMessage.includes('not responding')) {
-            handleChannelUnavailableRef.current('Channel not responding')
-          } else if (lowerMessage.includes('failed to fetch')) {
-            handleChannelUnavailableRef.current('Channel temporarily unavailable')
-          } else {
-            handleChannelUnavailableRef.current(message)
-          }
+          console.error('[Channel] Player error:', info?.message ?? _detail)
         })
 
         player.on(mpegts.Events.LOADING_COMPLETE, () => {
@@ -801,41 +793,6 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
         player.load()
 
-        // Start stuck-time detection for this channel
-        lastChannelTimeRef.current = 0
-        channelLoadTimeRef.current = Date.now()
-        if (stuckCheckRef.current) clearInterval(stuckCheckRef.current)
-        stuckCheckRef.current = setInterval(() => {
-          const v = videoRef.current
-          if (!v || !currentStreamUrlRef.current) return
-          const ct = v.currentTime
-          const elapsed = (Date.now() - channelLoadTimeRef.current) / 1000
-
-          if (elapsed > 8 && ct === 0) {
-            console.warn('[StuckCheck] No playback after 8s — currentTime still 0')
-            handleChannelUnavailableRef.current('Channel not responding')
-            return
-          }
-          if (ct > 3 && v.videoWidth === 0) {
-            console.warn('[StuckCheck] No video frames — videoWidth is 0, currentTime:', ct)
-            handleChannelUnavailableRef.current('Channel not responding')
-            return
-          }
-          if (!v.paused && lastChannelTimeRef.current > 0 && ct === lastChannelTimeRef.current) {
-            console.warn('[StuckCheck] Video stuck — time not progressing, currentTime:', ct)
-            handleChannelUnavailableRef.current('Channel stalled')
-            return
-          }
-          lastChannelTimeRef.current = ct
-        }, 3000)
-
-        videoEl.addEventListener('playing', () => {
-          if (stuckCheckRef.current) { clearInterval(stuckCheckRef.current); stuckCheckRef.current = null }
-        }, { once: true })
-        videoEl.addEventListener('error', () => {
-          if (stuckCheckRef.current) { clearInterval(stuckCheckRef.current); stuckCheckRef.current = null }
-        }, { once: true })
-
         videoEl.oncanplay = async () => {
           if (videoEl.videoWidth && videoEl.videoHeight) {
             setVideoInfo((prev) => ({
@@ -847,23 +804,20 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
           try {
             await videoEl.play()
-            clearChannelErrorTimeout()
-            clearAutoAdvanceTimer()
             setStatus('playing')
             setLastChannelId(item.data.id)
           } catch (err) {
             if (err instanceof Error && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
               setStatus('ready-click-to-play')
             } else {
-              handleChannelUnavailableRef.current(err instanceof Error ? err.message : String(err))
+              console.error('[Channel] Play failed:', err)
             }
           }
         }
         videoEl.onloadedmetadata = null
         videoEl.onplaying = () => {
-          clearChannelErrorTimeout()
-          clearAutoAdvanceTimer()
-          if (stuckCheckRef.current) { clearInterval(stuckCheckRef.current); stuckCheckRef.current = null }
+          clearErrorTimer()
+          setShowError(false)
           setStatus('playing')
           setLastChannelId(item.data.id)
           statsIntervalRef.current = setInterval(() => {
@@ -878,17 +832,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         videoEl.onstalled = null
         videoEl.onerror = () => {
           if (!currentStreamUrlRef.current) return
-
-          const v = videoRef.current
-          if (v && v.readyState >= 2 && !v.paused && v.currentTime > 0) return
-
           setLastVideoErrorCode(videoEl.error?.code ?? null)
-          const errCode = videoEl.error?.code ?? 0
-          if (errCode === 4) {
-            handleChannelUnavailableRef.current('Format not supported')
-          } else {
-            handleChannelUnavailableRef.current('Channel temporarily unavailable')
-          }
+          console.error('[Channel] Video error:', videoEl.error?.code, videoEl.error?.message)
         }
       } else {
         videoEl.src = streamUrl
@@ -935,12 +880,13 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
             }
             videoEl.onplaying = () => {
               setStatus('playing')
+              setVodError(false)
               startProgressTracking('movie', movieId)
             }
             videoEl.onerror = () => {
               if (!currentStreamUrl) return
               console.error('[Watch] Movie video error:', videoEl.error?.code)
-              setStatus('error')
+              safeSetVodError(true)
               setErrorMsg('Unable to play movie. Copy URL for VLC.')
             }
             try {
@@ -972,6 +918,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       }
       videoEl.onplaying = () => {
         setStatus('playing')
+        setVodError(false)
         startProgressTracking('movie', movieId)
       }
       videoEl.onerror = () => {
@@ -983,7 +930,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         const errCode = videoEl.error?.code ?? 0
         if (errCode === 1) return
         console.error('[Watch] Movie video error:', errCode, videoEl.error?.message)
-        setStatus('error')
+        safeSetVodError(true)
         if (errCode === 4) {
           setErrorMsg('Video format not supported by browser. Copy URL for VLC.')
         } else {
@@ -999,12 +946,12 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         if (err instanceof Error && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
           setStatus('ready-click-to-play')
         } else {
-          setStatus('error')
+          safeSetVodError(true)
           setErrorMsg(err instanceof Error ? err.message : String(err))
         }
       }
     }
-  }, [destroyPlayer, getWatchHistory, startProgressTracking, handleLoadedMetadata, setLastChannelId, clearChannelErrorTimeout, clearAutoAdvanceTimer])
+  }, [destroyPlayer, getWatchHistory, startProgressTracking, handleLoadedMetadata, setLastChannelId, clearErrorTimer])
 
   const handleFullscreenToggle = useCallback(() => {
     const container = videoContainerRef.current
@@ -1035,8 +982,36 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     videoRef.current.play().catch(() => {})
   }, [activeSource, routeType, routeId, episodeId, realDuration, currentTime, currentContainerExtension])
 
+  const navigateToEpisode = useCallback((episodeInfo: EpisodeInfo) => {
+    const allEpisodes = episodeInfo.allEpisodes && episodeInfo.allEpisodes.length > 0
+      ? episodeInfo.allEpisodes
+      : allEpisodesRef.current
+    const seriesId = episodeInfo.seriesId || currentSeriesIdRef.current
+    const seriesName = episodeInfo.seriesName || currentSeriesNameRef.current
+    const from = location.pathname + location.search
+
+    navigate(`/watch/episode/${episodeInfo.streamId}`, {
+      state: {
+        from,
+        tab: 'series',
+        seriesId,
+        seriesName,
+        seasonNumber: episodeInfo.seasonNumber,
+        episodeNumber: episodeInfo.episodeNumber,
+        episodeTitle: episodeInfo.episodeTitle,
+        containerExtension: episodeInfo.containerExtension,
+        streamId: episodeInfo.streamId,
+        allEpisodes,
+        realDuration: episodeInfo.realDuration || 0,
+      },
+    })
+  }, [location.pathname, location.search, navigate])
+
+  const navigateToMovie = useCallback((movieId: string) => {
+    navigate(`/watch/movie/${encodeURIComponent(movieId)}`)
+  }, [navigate])
+
   const handlePrevChannel = useCallback(() => {
-    clearAutoAdvanceTimer()
     const items = categoryItemsRef.current
     if (items.length === 0) return
 
@@ -1047,11 +1022,16 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     const nextItem = items[nextIndex]
     if (!nextItem) return
     categoryIndexRef.current = nextIndex
-    zapTo(nextItem.data.id)
-  }, [clearAutoAdvanceTimer, zapTo])
+    if (nextItem.type === 'episode') {
+      navigateToEpisode(nextItem.data as EpisodeInfo)
+    } else if (nextItem.type === 'movie') {
+      navigateToMovie(nextItem.data.id)
+    } else {
+      zapTo(nextItem.data.id)
+    }
+  }, [navigateToEpisode, navigateToMovie, zapTo])
 
   const handleNextChannel = useCallback(() => {
-    clearAutoAdvanceTimer()
     const items = categoryItemsRef.current
     if (items.length === 0) return
 
@@ -1062,44 +1042,185 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     const nextItem = items[nextIndex]
     if (!nextItem) return
     categoryIndexRef.current = nextIndex
-    zapTo(nextItem.data.id)
-  }, [clearAutoAdvanceTimer, zapTo])
-
-  const startAutoAdvanceTimer = useCallback(() => {
-    clearAutoAdvanceTimer()
-    setAutoAdvanceSeconds(5)
-
-    autoAdvanceIntervalRef.current = setInterval(() => {
-      setAutoAdvanceSeconds((prev) => {
-        if (prev === null) return null
-        return prev > 0 ? prev - 1 : 0
-      })
-    }, 1000)
-
-    autoAdvanceTimeoutRef.current = setTimeout(() => {
-      handleNextChannel()
-    }, 5000)
-  }, [clearAutoAdvanceTimer, handleNextChannel])
-
-  const handleChannelUnavailable = useCallback((message: string) => {
-    if (channelErrorTimeoutRef.current) {
-      clearTimeout(channelErrorTimeoutRef.current)
+    if (nextItem.type === 'episode') {
+      navigateToEpisode(nextItem.data as EpisodeInfo)
+    } else if (nextItem.type === 'movie') {
+      navigateToMovie(nextItem.data.id)
+    } else {
+      zapTo(nextItem.data.id)
     }
-
-    channelErrorTimeoutRef.current = setTimeout(() => {
-      if (!currentStreamUrlRef.current) return
-      console.warn('[Channel] Showing error overlay:', message)
-      setStatus('error')
-      setErrorMsg(message)
-      startAutoAdvanceTimer()
-    }, 1000)
-  }, [startAutoAdvanceTimer])
-
-  handleChannelUnavailableRef.current = handleChannelUnavailable
+  }, [navigateToEpisode, navigateToMovie, zapTo])
 
   useEffect(() => {
     hasResumedRef.current = false
   }, [currentItemId, routeId, episodeId])
+
+  useEffect(() => {
+    const prevRoute = prevRouteIdRef.current
+    const prevEpisode = prevEpisodeIdRef.current
+    const isContentChange = prevRoute !== routeId || prevEpisode !== episodeId
+
+    if (isContentChange && watchedItemRef.current.itemId) {
+      const prev = watchedItemRef.current
+      if (prev.currentTime > 5 && prev.itemType && prev.itemId && prev.sourceId) {
+        console.log('[Watch] Saving previous content progress:', `${prev.itemType}:${prev.itemId}`, 'at', prev.currentTime)
+        updateWatchProgress(prev.itemType, prev.itemId, prev.sourceId, prev.currentTime, prev.duration)
+      }
+      watchedItemRef.current = {
+        itemType: null,
+        itemId: null,
+        sourceId: null,
+        currentTime: 0,
+        duration: 0,
+      }
+    }
+
+    prevRouteIdRef.current = routeId || ''
+    prevEpisodeIdRef.current = episodeId || ''
+  }, [routeId, episodeId, updateWatchProgress])
+
+  useEffect(() => {
+    return () => {
+      saveWatchedItemProgress()
+    }
+  }, [saveWatchedItemProgress])
+
+  useEffect(() => {
+    console.log('[VOD] routeId changed to:', routeId, '| vodError currently:', vodError, '| streamUrl:', currentStreamUrl)
+  }, [routeId])
+
+  useEffect(() => {
+    console.log('[VOD] vodError changed to:', vodError, '| at routeId:', routeId)
+  }, [vodError, routeId])
+
+  useLayoutEffect(() => {
+    loadingNewContentRef.current = true
+    setIsLoadingNewContent(true)
+    setVodError(false)
+    setShowError(false)
+
+    if (vodErrorTimerRef.current) {
+      clearTimeout(vodErrorTimerRef.current)
+      vodErrorTimerRef.current = null
+    }
+
+    if (errorTimerRef.current) {
+      clearTimeout(errorTimerRef.current)
+      errorTimerRef.current = null
+    }
+  }, [routeId, episodeId])
+
+  useEffect(() => {
+    console.log('[VOD] Content changed, clearing all error state')
+
+    setVodError(false)
+    setShowError(false)
+
+    if (vodErrorTimerRef.current) {
+      clearTimeout(vodErrorTimerRef.current)
+      vodErrorTimerRef.current = null
+    }
+
+    if (errorTimerRef.current) {
+      clearTimeout(errorTimerRef.current)
+      errorTimerRef.current = null
+    }
+
+    setIsLoadingNewContent(true)
+    loadingNewContentRef.current = true
+
+    const timer = setTimeout(() => {
+      setIsLoadingNewContent(false)
+      loadingNewContentRef.current = false
+    }, 3000)
+
+    return () => clearTimeout(timer)
+  }, [routeId, episodeId])
+
+  useEffect(() => {
+    if (routeType !== 'episode') return
+
+    console.log('[Watch] === EPISODE CHANGE ===', {
+      oldEpisodeId: prevEpisodeIdRef.current,
+      newEpisodeId: episodeId,
+      realDuration,
+      videoCurrentTime: videoRef.current?.currentTime,
+    })
+
+    prevEpisodeIdRef.current = episodeId || ''
+
+    setRealDuration(0)
+    setSeekOffset(0)
+    setCurrentTime(0)
+    setIsPlaying(false)
+    setShowError(false)
+    setVodError(false)
+    setAudioTracks([])
+    setSubtitleTracks([])
+    setSelectedAudio(null)
+    setSelectedSubtitle('none')
+
+    if (vodErrorTimerRef.current) {
+      clearTimeout(vodErrorTimerRef.current)
+      vodErrorTimerRef.current = null
+    }
+
+    if (videoRef.current) {
+      try { videoRef.current.pause() } catch { /* ignore */ }
+      try { videoRef.current.currentTime = 0 } catch { /* ignore */ }
+      videoRef.current.src = ''
+    }
+  }, [episodeId, routeType])
+
+  useEffect(() => {
+    if (routeType !== 'movie') return
+
+    console.log('[Watch] Movie changed to:', routeId)
+
+    setRealDuration(0)
+    setSeekOffset(0)
+    setCurrentTime(0)
+    setIsPlaying(false)
+    setShowError(false)
+    setVodError(false)
+    setAudioTracks([])
+    setSubtitleTracks([])
+    setSelectedAudio(null)
+    setSelectedSubtitle('none')
+    setCurrentStreamUrl('')
+    setCurrentContainerExtension('mp4')
+
+    if (vodErrorTimerRef.current) {
+      clearTimeout(vodErrorTimerRef.current)
+      vodErrorTimerRef.current = null
+    }
+
+    if (videoRef.current) {
+      try { videoRef.current.pause() } catch { /* ignore */ }
+      try { videoRef.current.currentTime = 0 } catch { /* ignore */ }
+      videoRef.current.src = ''
+      videoRef.current.load()
+    }
+  }, [routeId, routeType])
+
+  useEffect(() => {
+    setStreamSettled(false)
+    const timer = setTimeout(() => setStreamSettled(true), 2000)
+    return () => clearTimeout(timer)
+  }, [currentStreamUrl])
+
+  useEffect(() => {
+    setVodError(false)
+  }, [currentStreamUrl])
+
+  useEffect(() => {
+    setVodError(false)
+
+    if (vodErrorTimerRef.current) {
+      clearTimeout(vodErrorTimerRef.current)
+      vodErrorTimerRef.current = null
+    }
+  }, [routeId, episodeId])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -1187,11 +1308,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
   useEffect(() => {
     return () => {
-      clearAutoAdvanceTimer()
-      clearChannelErrorTimeout()
+      clearErrorTimer()
       stopProgressTracking()
     }
-  }, [clearAutoAdvanceTimer, clearChannelErrorTimeout, stopProgressTracking])
+  }, [clearErrorTimer, stopProgressTracking])
 
   // Track detection removed - audio/subtitle UI no longer needed
 
@@ -1201,8 +1321,34 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     }
   }, [currentItemId])
 
-  const isChannelError = status === 'error' && currentType === 'channel'
-  const showMainContent = status !== 'error' || isChannelError
+  const isLiveChannel = currentType === 'channel'
+  const showMainContent = status !== 'error'
+
+  useEffect(() => {
+    setShowError(false)
+    clearErrorTimer()
+  }, [currentStreamUrl, clearErrorTimer])
+
+  useEffect(() => {
+    if (!isLiveChannel || !currentStreamUrl) return
+    if (showError) return
+
+    const video = videoRef.current
+    if (!video) return
+
+    errorTimerRef.current = setTimeout(() => {
+      if (video.currentTime === 0) {
+        console.log('[Channel] No playback after 12s, showing overlay')
+        setShowError(true)
+      } else {
+        console.log('[Channel] Playing OK at:', video.currentTime)
+      }
+    }, 12000)
+
+    return () => {
+      clearErrorTimer()
+    }
+  }, [currentStreamUrl, isLiveChannel, showError, clearErrorTimer])
 
   const initRef = useRef<boolean>(false)
   const locationStateRef = useRef<typeof location.state>(location.state)
@@ -1328,8 +1474,16 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeId, routeType, episodeId])
 
+  const episodeSeriesId = routeType === 'episode'
+    ? ((location.state as Partial<EpisodeInfo> | null)?.seriesId || currentSeriesIdRef.current)
+    : ''
+
   // Prompt 1: Always fetch real duration on mount for VOD content
   useEffect(() => {
+    if (routeType === 'episode') {
+      setRealDuration(0)
+    }
+
     async function fetchRealDuration() {
       const source = usePlaylistStore.getState().getActiveSource()
       if (!source || source.type !== 'xtream') return
@@ -1342,39 +1496,73 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
               username: source.username,
               password: source.password,
             }, match[1])
-            const dur = Number(info?.info?.duration_secs) || 0
+            console.log('[Duration DEBUG]', {
+              duration_secs: info?.info?.duration_secs,
+              duration: info?.info?.duration,
+              duration_type: typeof info?.info?.duration,
+              full_info_keys: Object.keys(info?.info ?? {}),
+            })
+
+            const fromSecs = Number(info?.info?.duration_secs) || 0
+            const fromString = parseDurationString(String(info?.info?.duration ?? ''))
+            let dur = Math.max(fromSecs, fromString)
+
+            console.log('[Duration] from secs:', fromSecs, '| from string:', fromString, '| using:', dur)
+
             if (dur > 0) {
               console.log('[Watch] Fetched movie duration:', dur, 'seconds')
               setRealDuration(dur)
             }
           }
-        } else if (routeType === 'episode' && episodeId && locationStateRef.current) {
-          const episodeState = locationStateRef.current as EpisodeInfo
-          if (episodeState.seriesId) {
+        } else if (routeType === 'episode' && episodeId && episodeSeriesId) {
+            console.log('[Duration] Fetching for episode ID:', episodeId)
+
             const seriesInfo = await getSeriesInfo(source.serverUrl, {
               username: source.username,
               password: source.password,
-            }, episodeState.seriesId)
-            let foundEpisode: { info?: { duration_secs?: number | string } } | null = null
+            }, episodeSeriesId)
+
+            let foundEpisode: { info?: { duration_secs?: number | string }; duration_secs?: number | string; id?: string | number } | null = null
             for (const season of Object.values(seriesInfo?.episodes ?? {})) {
               if (Array.isArray(season)) {
-                const ep = (season as Array<{ id: string | number; info?: { duration_secs?: number | string } }>).find(e => String(e.id) === String(episodeId))
-                if (ep) { foundEpisode = ep; break }
+                const ep = (season as Array<{ id: string | number; info?: { duration_secs?: number | string }; duration_secs?: number | string }>).find(e => String(e.id) === String(episodeId))
+                if (ep) {
+                  foundEpisode = ep
+                  break
+                }
               }
             }
-            const dur = Number(foundEpisode?.info?.duration_secs) || 0
-            if (dur > 0) {
-              console.log('[Watch] Fetched episode duration:', dur, 'seconds')
-              setRealDuration(dur)
+
+            if (!foundEpisode) {
+              console.warn('[Duration] Episode not found in series info')
+              setRealDuration(0)
+              return
             }
-          }
+
+            const fromSecs = Number(foundEpisode?.info?.duration_secs)
+              || Number(foundEpisode?.duration_secs)
+              || 0
+            const fromString = parseDurationString(String((foundEpisode?.info as { duration?: string } | undefined)?.duration || ''))
+            let dur = Math.max(fromSecs, fromString)
+
+            console.log('[Duration] episode from secs:', fromSecs, '| from string:', fromString, '| using:', dur)
+
+            console.log('[Duration] Episode', episodeId, 'duration:', dur, 'seconds')
+
+            if (dur > 0) {
+              setRealDuration(dur)
+            } else {
+              console.log('[Duration] No duration_secs for this episode, will use video.duration')
+              setRealDuration(0)
+            }
         }
       } catch (err) {
-        console.error('[Watch] Failed to fetch real duration:', err)
+        console.error('[Duration] Failed:', err)
+        setRealDuration(0)
       }
     }
     fetchRealDuration()
-  }, [routeType, routeId, episodeId])
+  }, [routeType, routeId, episodeId, episodeSeriesId, activeSource?.id, location.state])
 
   useEffect(() => {
     if (currentType === 'channel' || !activeSource || activeSource.type !== 'xtream') return
@@ -1394,15 +1582,22 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
           ext: currentContainerExtension,
         })
         const res = await fetch(`/probe/${transcodeType}/${streamId}?${params}`)
-        if (!res.ok) return
+        if (!res.ok) {
+          console.warn('[Probe] Failed with status:', res.status)
+          return
+        }
         const data = await res.json()
         console.log('[Probe] Tracks:', data)
         setAudioTracks(data.audioTracks || [])
         setSubtitleTracks(data.subtitleTracks || [])
+        if (data.duration && data.duration > 0) {
+          console.log('[Duration] Override with probe duration:', data.duration)
+          setRealDuration(Math.floor(data.duration))
+        }
         const defaultAudio = data.audioTracks?.find((t: { default: boolean }) => t.default) || data.audioTracks?.[0]
         if (defaultAudio) setSelectedAudio(defaultAudio.index)
       } catch (err) {
-        console.error('[Probe] Failed:', err)
+        console.warn('[Probe] Error, continuing without track info:', err)
       }
     }
     probeTracks()
@@ -1456,19 +1651,96 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     }
   }, [])
 
+  const isVod = currentType === 'movie' || currentType === 'episode'
+
   useEffect(() => {
-    if (currentType === 'channel' || !videoRef.current) return
-    return () => {
-      const rawTime = videoRef.current?.currentTime || 0
-      const ct = rawTime + seekOffset
-      const dur = realDuration || videoRef.current?.duration || 0
-      const itemId = currentType === 'movie' ? routeId : episodeId
-      if (ct > 5 && dur > 0) {
-        console.log('[Watch] Saving progress on unmount:', ct, '/', dur, 'seekOffset:', seekOffset)
-        updateWatchProgress(currentType as 'movie' | 'episode', itemId || '', activeSource?.id || '', ct, dur)
+    if (!isVod || !currentStreamUrl) return
+    if (isLoadingNewContent) return
+
+    const video = videoRef.current
+    if (!video) return
+
+    if (video.currentSrc !== currentStreamUrl && video.src !== currentStreamUrl) return
+
+    console.log('[VOD] Starting 25s error timer for:', currentStreamUrl)
+
+    vodErrorTimerRef.current = setTimeout(() => {
+      if (video.currentTime === 0) {
+        console.log('[VOD] No playback after 25s, showing error')
+        safeSetVodError(true)
+      } else {
+        console.log('[VOD] Playing OK, currentTime:', video.currentTime)
+      }
+    }, 25000)
+
+    const onPlaying = () => {
+      if (vodErrorTimerRef.current) {
+        console.log('[VOD] Video playing, cancelling error timer')
+        clearTimeout(vodErrorTimerRef.current)
+        vodErrorTimerRef.current = null
       }
     }
-  }, [currentType, routeId, episodeId, activeSource?.id, updateWatchProgress, seekOffset, realDuration])
+
+    const onTimeUpdate = () => {
+      if (video.currentTime > 0.5 && vodErrorTimerRef.current) {
+        clearTimeout(vodErrorTimerRef.current)
+        vodErrorTimerRef.current = null
+      }
+    }
+
+    video.addEventListener('playing', onPlaying)
+    video.addEventListener('timeupdate', onTimeUpdate)
+
+    return () => {
+      if (vodErrorTimerRef.current) {
+        clearTimeout(vodErrorTimerRef.current)
+        vodErrorTimerRef.current = null
+      }
+      video.removeEventListener('playing', onPlaying)
+      video.removeEventListener('timeupdate', onTimeUpdate)
+    }
+  }, [currentStreamUrl, isVod, isLoadingNewContent])
+
+  useEffect(() => {
+    if (!isVod) return
+
+    const video = videoRef.current
+    if (!video) return
+
+    let errorDelayTimer: ReturnType<typeof setTimeout> | null = null
+
+    const onError = () => {
+      if (errorDelayTimer) {
+        clearTimeout(errorDelayTimer)
+      }
+
+      errorDelayTimer = setTimeout(() => {
+        if (video.error && video.currentTime === 0) {
+          console.log('[VOD] Persistent error after 3s, showing overlay')
+          safeSetVodError(true)
+        }
+      }, 3000)
+    }
+
+    const onPlaying = () => {
+      if (errorDelayTimer) {
+        clearTimeout(errorDelayTimer)
+        errorDelayTimer = null
+      }
+      setVodError(false)
+    }
+
+    video.addEventListener('error', onError)
+    video.addEventListener('playing', onPlaying)
+
+    return () => {
+      if (errorDelayTimer) {
+        clearTimeout(errorDelayTimer)
+      }
+      video.removeEventListener('error', onError)
+      video.removeEventListener('playing', onPlaying)
+    }
+  }, [isVod])
 
   return (
     <div className="h-[100dvh] overflow-hidden bg-slate-950 flex flex-col select-none">
@@ -1530,7 +1802,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       </header>
 
       {/* Error state - dark centered panel */}
-      {status === 'error' && !isChannelError && (
+      {status === 'error' && (
         <div className="flex-1 flex items-center justify-center bg-slate-950">
           <div className="text-center max-w-md px-4">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-slate-800 flex items-center justify-center">
@@ -1584,6 +1856,15 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                     const ct = videoEl.currentTime + seekOffset
                     const displayDur = realDuration || videoEl.duration || 0
                     setCurrentTime(ct)
+                    if (isVod && ct > 0) {
+                      watchedItemRef.current = {
+                        itemType: currentType === 'movie' ? 'movie' : 'episode',
+                        itemId: currentType === 'movie' ? (routeId || null) : (episodeId || null),
+                        sourceId: activeSource?.id || null,
+                        currentTime: ct,
+                        duration: displayDur,
+                      }
+                    }
                     const prog = displayDur > 0 ? (ct / displayDur) * 100 : 0
                     const bar = document.getElementById('watch-progress-bar') as HTMLDivElement | null
                     if (bar) bar.style.width = `${prog}%`
@@ -1904,85 +2185,55 @@ setSeekOffset(target)
                 )}
 
                 {/* Channel error overlay */}
-                {isChannelError && (
-                  <div
-                    className="absolute inset-0 z-20 flex flex-col items-center justify-center"
-                    style={{
-                      background: 'radial-gradient(ellipse at center, rgba(0,0,0,0.7) 0%, rgba(0,0,0,0.85) 100%)',
-                      backdropFilter: 'blur(12px)',
-                      WebkitBackdropFilter: 'blur(12px)',
-                      animation: 'channelErrorFadeIn 0.3s ease-out',
-                      fontFamily: "'DM Sans', sans-serif",
+                {showError && isLiveChannel && (
+                  <ChannelErrorOverlay
+                    onRetry={() => {
+                      setShowError(false)
+                      if (videoRef.current) {
+                        videoRef.current.load()
+                        videoRef.current.play().catch(() => {})
+                      }
                     }}
-                  >
-                    <div className="flex flex-col items-center gap-3">
-                      <div className="relative w-20 h-20">
-                        <svg className="w-20 h-20 -rotate-90" viewBox="0 0 64 64">
-                          <circle
-                            cx="32" cy="32" r="30"
-                            fill="none"
-                            stroke="rgba(255,255,255,0.1)"
-                            strokeWidth="2"
-                          />
-                          {autoAdvanceSeconds !== null && (
-                            <circle
-                              cx="32" cy="32" r="30"
-                              fill="none"
-                              stroke="rgba(255,255,255,0.6)"
-                              strokeWidth="2"
-                              strokeLinecap="round"
-                              strokeDasharray="188.5"
-                              strokeDashoffset="0"
-                              style={{
-                                animation: 'countdownRing 5s linear forwards',
-                              }}
-                            />
-                          )}
-                        </svg>
-                        {autoAdvanceSeconds !== null && (
-                          <span
-                            className="absolute inset-0 flex items-center justify-center text-white text-2xl font-light"
-                            style={{ fontFamily: "'DM Sans', sans-serif" }}
-                          >
-                            {autoAdvanceSeconds}
-                          </span>
-                        )}
-                      </div>
-
-                      <p className="text-white/80 text-sm font-light tracking-wide">
-                        Channel unavailable
-                      </p>
-                      {autoAdvanceSeconds !== null && (
-                        <p className="text-white/40 text-xs font-light">
-                          Switching in {autoAdvanceSeconds}s
-                        </p>
-                      )}
-
-                      <div className="flex items-center gap-2 mt-2">
-                        <button
-                          onClick={handlePrevChannel}
-                          className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/15 text-white/70 hover:text-white transition-all focus:outline-none focus:ring-2 focus:ring-white/30"
-                          aria-label="Previous channel"
-                        >
-                          <ChevronLeft className="w-5 h-5" />
-                        </button>
-                        <button
-                          onClick={() => {
-                            clearAutoAdvanceTimer()
-                            zapTo(currentItemId)
-                          }}
-                          className="px-5 h-10 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 text-white/80 hover:text-white text-sm font-light tracking-wide transition-all focus:outline-none focus:ring-2 focus:ring-white/30"
-                        >
-                          Retry
-                        </button>
-                        <button
-                          onClick={handleNextChannel}
-                          className="w-10 h-10 flex items-center justify-center rounded-full bg-white/5 hover:bg-white/15 text-white/70 hover:text-white transition-all focus:outline-none focus:ring-2 focus:ring-white/30"
-                          aria-label="Next channel"
-                        >
-                          <ChevronRight className="w-5 h-5" />
-                        </button>
-                      </div>
+                    onPrev={() => {
+                      setShowError(false)
+                      handlePrevChannel()
+                    }}
+                    onNext={() => {
+                      setShowError(false)
+                      handleNextChannel()
+                    }}
+                  />
+                )}
+                {vodError && isVod && currentStreamUrl && streamSettled && !isLoadingNewContent && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-50 p-6 text-center">
+                    <div className="w-16 h-16 mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
+                      <AlertTriangle className="w-8 h-8 text-red-400" />
+                    </div>
+                    <p className="text-white text-lg font-medium mb-2">
+                      Unable to play this {routeType === 'movie' ? 'movie' : 'episode'}
+                    </p>
+                    <p className="text-white/60 text-sm mb-6 max-w-md">
+                      The stream may be unavailable or the link has expired. Try a different {routeType === 'movie' ? 'movie' : 'episode'} or contact your provider.
+                    </p>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => navigate(-1)}
+                        className="px-6 py-2 rounded-full bg-white/10 hover:bg-white/20 text-white text-sm font-medium"
+                      >
+                        Go Back
+                      </button>
+                      <button
+                        onClick={() => {
+                          setVodError(false)
+                          if (videoRef.current) {
+                            videoRef.current.load()
+                            videoRef.current.play().catch(() => {})
+                          }
+                        }}
+                        className="px-6 py-2 rounded-full bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium"
+                      >
+                        Retry
+                      </button>
                     </div>
                   </div>
                 )}
@@ -2068,7 +2319,9 @@ setSeekOffset(target)
                         ref={isActive ? activeItemRef : null}
 onClick={() => {
                           if (item.type === 'episode') {
-                            playEpisode(item.data as EpisodeInfo, activeSource)
+                            navigateToEpisode(item.data as EpisodeInfo)
+                          } else if (item.type === 'movie') {
+                            navigateToMovie(item.data.id)
                           } else {
                             zapTo(item.data.id)
                           }
