@@ -1461,11 +1461,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setShowControls(true)
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
     controlsTimeoutRef.current = setTimeout(() => {
-      if (videoRef.current && !videoRef.current.paused) {
+      if (videoRef.current && !videoRef.current.paused && !showSettings) {
         setShowControls(false)
       }
     }, 3000)
-  }, [])
+  }, [showSettings])
 
   useEffect(() => {
     return () => {
@@ -1590,7 +1590,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                 className="relative w-full h-full flex items-center justify-center bg-black rounded border-slate-700"
                 style={isFullscreen ? { width: '100vw', height: '100vh', borderRadius: 0 } : undefined}
                 onMouseMove={currentType !== 'channel' ? resetControlsTimer : undefined}
-                onMouseLeave={currentType !== 'channel' ? () => { if (videoRef.current && !videoRef.current.paused) setShowControls(false) } : undefined}
+                 onMouseLeave={currentType !== 'channel' ? () => { if (videoRef.current && !videoRef.current.paused && !showSettings) setShowControls(false) } : undefined}
               >
                 <video
                   ref={videoRef}
@@ -1857,7 +1857,11 @@ setSeekOffset(target)
                                  e.stopPropagation()
                                  e.preventDefault()
                                  console.log('[GEAR] clicked, showSettings:', showSettings)
-                                 setShowSettings(!showSettings)
+                                 const newSettings = !showSettings
+                                 setShowSettings(newSettings)
+                                 if (!newSettings) {
+                                   resetControlsTimer()
+                                 }
                                }}
                                className="text-white/70 hover:text-white p-1"
                                aria-label="Audio & subtitle settings"
