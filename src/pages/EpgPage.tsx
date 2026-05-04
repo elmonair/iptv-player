@@ -5,6 +5,7 @@ import { usePlaylistStore } from '../stores/playlistStore'
 import { parseAndStoreXmltv, clearEpgForSource, getEpgForChannel } from '../lib/epgParser'
 import { db } from '../lib/db'
 import { TopNavBar } from '../components/TopNavBar'
+import { useTranslation } from '../lib/i18n'
 import type { ChannelRecord } from '../lib/db'
 
 type EpgProgram = {
@@ -35,21 +36,22 @@ const formatTime = (ts: number) => {
   })
 }
 
-const formatTimeAgo = (ts: number): string => {
-  const seconds = Math.floor((Date.now() - ts) / 1000)
-  if (seconds < 60) return 'just now'
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  return `${days}d ago`
-}
-
 export default function EpgPage() {
   const navigate = useNavigate()
   const { getActiveSource } = usePlaylistStore()
   const activeSource = getActiveSource()
+  const { t } = useTranslation()
+
+  const formatTimeAgo = (ts: number): string => {
+    const seconds = Math.floor((Date.now() - ts) / 1000)
+    if (seconds < 60) return t('justNow')
+    const minutes = Math.floor(seconds / 60)
+    if (minutes < 60) return t('minutesAgo', { count: minutes })
+    const hours = Math.floor(minutes / 60)
+    if (hours < 24) return t('hoursAgo', { count: hours })
+    const days = Math.floor(hours / 24)
+    return t('daysAgo', { count: days })
+  }
 
   const [categories, setCategories] = useState<Array<{ id: string; name: string }>>([])
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>('all')
@@ -261,8 +263,8 @@ export default function EpgPage() {
       <div className="flex-1 flex overflow-hidden">
         <aside className="w-64 flex-shrink-0 bg-slate-900 border-r border-slate-800 overflow-y-auto">
           <div className="p-4 border-b border-slate-800">
-            <h2 className="text-lg font-semibold text-white mb-1">Categories</h2>
-            <p className="text-xs text-slate-400">Select to view channel guide</p>
+            <h2 className="text-lg font-semibold text-white mb-1">{t('categoriesTab')}</h2>
+            <p className="text-xs text-slate-400">{t('selectToViewGuide')}</p>
           </div>
           <nav className="p-2">
             <button
@@ -274,7 +276,7 @@ export default function EpgPage() {
               }`}
             >
               <Tv2 className="w-4 h-4" />
-              <span className="flex-1">All Channels</span>
+              <span className="flex-1">{t('allChannels')}</span>
             </button>
             {categories.map(cat => (
               <button
@@ -295,14 +297,14 @@ export default function EpgPage() {
         <main className="flex-1 flex flex-col overflow-hidden">
           <header className="flex-shrink-0 h-16 border-b border-slate-800 bg-slate-900 flex items-center justify-between px-4">
             <div className="flex items-center gap-4">
-              <h1 className="text-xl font-semibold text-white">TV Guide</h1>
+              <h1 className="text-xl font-semibold text-white">{t('tvGuide')}</h1>
               <div className="flex items-center gap-1 text-slate-400 text-sm">
                 <Clock className="w-4 h-4" />
                 <span>{currentTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false })}</span>
               </div>
               {lastEpgSync && (
                 <span className="text-xs text-slate-500">
-                  Last sync: {formatTimeAgo(lastEpgSync)}
+                  {t('lastSync')} {formatTimeAgo(lastEpgSync)}
                 </span>
               )}
             </div>
@@ -314,7 +316,7 @@ export default function EpgPage() {
                   className="flex items-center gap-2 px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-700 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[44px]"
                 >
                   {isSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
-                  {isSyncing ? `Syncing...${syncProgress !== null ? ` (${syncProgress})` : ''}` : 'Sync EPG'}
+                  {isSyncing ? `${t('syncing')}${syncProgress !== null ? ` (${syncProgress})` : ''}` : t('syncEpg')}
                 </button>
               )}
               {loading && <Loader2 className="w-5 h-5 animate-spin text-slate-400" />}
@@ -330,7 +332,7 @@ export default function EpgPage() {
 
             {!loading && channels.length === 0 && (
               <div className="flex items-center justify-center h-full">
-                <p className="text-slate-400">No channels found</p>
+                <p className="text-slate-400">{t('noChannelsInThisCategory')}</p>
               </div>
             )}
 
@@ -362,15 +364,15 @@ export default function EpgPage() {
                       {channelEpg.loading ? (
                         <div className="flex items-center gap-2 text-slate-500 text-sm">
                           <Loader2 className="w-3 h-3 animate-spin" />
-                          <span>Loading...</span>
+                          <span>{t('loading')}</span>
                         </div>
                       ) : channelEpg.error === 'No EPG' ? (
-                        <p className="text-slate-500 text-xs italic">No EPG</p>
+                        <p className="text-slate-500 text-xs italic">{t('noEpg')}</p>
                       ) : channelEpg.currentProgram || channelEpg.nextProgram ? (
                         <div className="space-y-1">
                           {channelEpg.currentProgram && (
                             <div className="flex items-center gap-2 text-xs">
-                              <span className="text-indigo-400 font-medium min-w-[35px]">NOW</span>
+                              <span className="text-indigo-400 font-medium min-w-[35px]">{t('now')}</span>
                               <span className="text-slate-300 truncate">{channelEpg.currentProgram.title}</span>
                               <span className="text-slate-500 flex-shrink-0">
                                 {formatTime(channelEpg.currentProgram.startTimestamp)} - {formatTime(channelEpg.currentProgram.endTimestamp)}
@@ -379,7 +381,7 @@ export default function EpgPage() {
                           )}
                           {channelEpg.nextProgram && (
                             <div className="flex items-center gap-2 text-xs">
-                              <span className="text-slate-400 font-medium min-w-[35px]">NEXT</span>
+                              <span className="text-slate-400 font-medium min-w-[35px]">{t('next')}</span>
                               <span className="text-slate-400 truncate">{channelEpg.nextProgram.title}</span>
                               <span className="text-slate-500 flex-shrink-0">
                                 {formatTime(channelEpg.nextProgram.startTimestamp)} - {formatTime(channelEpg.nextProgram.endTimestamp)}
@@ -388,7 +390,7 @@ export default function EpgPage() {
                           )}
                         </div>
                       ) : (
-                        <p className="text-slate-500 text-xs italic">No EPG</p>
+                        <p className="text-slate-500 text-xs italic">{t('noEpg')}</p>
                       )}
                     </div>
 
@@ -399,7 +401,7 @@ export default function EpgPage() {
                     <div className="px-4 pb-3 bg-slate-900/30 border-t border-slate-800/50">
                       <div className="pt-3 space-y-2">
                         <div className="flex items-center justify-between mb-2">
-                          <h4 className="text-sm font-medium text-slate-300">Schedule (Next 12 hours)</h4>
+                          <h4 className="text-sm font-medium text-slate-300">{t('scheduleNext12Hours')}</h4>
                           <span className="text-xs text-slate-500">{schedulePrograms.length} programs</span>
                         </div>
                         {schedulePrograms.length > 0 ? (
@@ -430,8 +432,8 @@ export default function EpgPage() {
                         ) : (
                           <p className="text-slate-500 text-xs italic">
                             {channelEpg.channel.epgChannelId
-                              ? 'No programs scheduled'
-                              : 'No EPG channel ID configured'}
+                              ? t('noProgramsScheduled')
+                              : t('noEpgChannelIdConfigured')}
                           </p>
                         )}
                         <button
@@ -441,7 +443,7 @@ export default function EpgPage() {
                           }}
                           className="mt-2 w-full py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[44px]"
                         >
-                          Watch Now
+                          {t('watchNow')}
                         </button>
                       </div>
                     </div>
