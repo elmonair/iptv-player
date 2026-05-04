@@ -192,10 +192,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const [isBuffering, setIsBuffering] = useState(false)
   const [seekOffset, setSeekOffset] = useState(0)
   const [showSettings, setShowSettings] = useState(false)
-  const [audioTracks, setAudioTracks] = useState<Array<{ index: number; codec: string; language: string; title: string; channels: number; default: boolean }>>([])
-  const [subtitleTracks, setSubtitleTracks] = useState<Array<{ index: number; codec: string; language: string; title: string; default: boolean }>>([])
+  const [audioTracks, setAudioTracks] = useState<Array<{ index: number; codec: string; language: string; title: string | null; channels: number | null; channel_layout: string | null; is_default: boolean; browser_compatible: boolean }>>([])
+  const [subtitleTracks, setSubtitleTracks] = useState<Array<{ index: number; codec: string; language: string; title: string | null; forced: boolean; is_default: boolean; is_bitmap: boolean; extractable: boolean }>>([])
   const [selectedAudio, setSelectedAudio] = useState<number | null>(null)
-  const [selectedSubtitle, setSelectedSubtitle] = useState<string>('none')
+  const [selectedSubtitle, setSelectedSubtitle] = useState<number | null>(null)
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
@@ -1193,6 +1193,23 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     }
   }, [clearAutoAdvanceTimer, clearChannelErrorTimeout, stopProgressTracking])
 
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    const apply = () => {
+      const tracks = video.textTracks
+      for (let i = 0; i < tracks.length; i++) {
+        tracks[i].mode = 'disabled'
+      }
+      if (selectedSubtitle !== null && tracks.length > 0) {
+        tracks[tracks.length - 1].mode = 'showing'
+      }
+    }
+    apply()
+    video.textTracks.addEventListener('addtrack', apply)
+    return () => video.textTracks.removeEventListener('addtrack', apply)
+  }, [selectedSubtitle])
+
   // Track detection removed - audio/subtitle UI no longer needed
 
   useEffect(() => {
@@ -1397,9 +1414,9 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         if (!res.ok) return
         const data = await res.json()
         console.log('[Probe] Tracks:', data)
-        setAudioTracks(data.audioTracks || [])
-        setSubtitleTracks(data.subtitleTracks || [])
-        const defaultAudio = data.audioTracks?.find((t: { default: boolean }) => t.default) || data.audioTracks?.[0]
+        setAudioTracks(data.audio_tracks || [])
+        setSubtitleTracks(data.subtitle_tracks || [])
+        const defaultAudio = data.audio_tracks?.find((t: { default: boolean }) => t.default) || data.audio_tracks?.[0]
         if (defaultAudio) setSelectedAudio(defaultAudio.index)
       } catch (err) {
         console.error('[Probe] Failed:', err)
@@ -1614,7 +1631,34 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                       }
                     }
                   }}
-                />
+                >
+                  {selectedSubtitle !== null &&
+                   subtitleTracks[selectedSubtitle] !== undefined &&
+                   subtitleTracks[selectedSubtitle].extractable &&
+                   !subtitleTracks[selectedSubtitle].is_bitmap &&
+                   activeSource?.type === 'xtream' && (() => {
+                    const t = subtitleTracks[selectedSubtitle]
+                    const sType = currentType === 'episode' ? 'series' : currentType
+                    const sId = currentType === 'episode' ? episodeId : currentItemId
+                    if (!sId) return null
+                    const p = new URLSearchParams({
+                      serverUrl: activeSource.serverUrl,
+                      username: activeSource.username,
+                      password: activeSource.password,
+                      ext: currentContainerExtension || 'mkv',
+                    })
+                    return (
+                      <track
+                        key={'sub-' + sType + '-' + sId + '-' + selectedSubtitle}
+                        kind="subtitles"
+                        src={'/subtitles/' + sType + '/' + sId + '/' + selectedSubtitle + '.vtt?' + p}
+                        srcLang={t?.language || 'und'}
+                        label={t?.title || t?.language?.toUpperCase() || 'Sub'}
+                        default
+                      />
+                    )
+                  })()}
+                </video>
 
                 {/* Buffering spinner */}
                 {isBuffering && (
@@ -1863,36 +1907,46 @@ setSeekOffset(target)
                           {subtitleTracks.length > 0 && (
                             <div>
                               <p className="text-xs uppercase text-slate-400 mb-2 tracking-wide">Subtitles</p>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setSelectedSubtitle('none')
-                                  reloadWithSettings({ subtitleTrack: 'none' })
-                                }}
-                                className={`w-full text-left px-3 py-2 rounded text-sm transition-colors mb-1 ${
-                                  selectedSubtitle === 'none'
-                                    ? 'bg-indigo-600 text-white'
-                                    : 'text-slate-300 hover:bg-slate-800'
-                                }`}
-                              >
-                                Off
-                              </button>
+                               <button
+                                 onClick={(e) => {
+                                   e.stopPropagation()
+                                   setSelectedSubtitle(null)
+                                 }}
+                                 className={`w-full text-left px-3 py-2 rounded text-sm transition-colors mb-1 ${
+                                   selectedSubtitle === null
+                                     ? 'bg-indigo-600 text-white'
+                                     : 'text-slate-300 hover:bg-slate-800'
+                                 }`}
+                               >
+                                 Off
+                               </button>
                               {subtitleTracks.map((track) => (
                                 <button
                                   key={track.index}
+                                  disabled={track.is_bitmap}
                                   onClick={(e) => {
                                     e.stopPropagation()
-                                    setSelectedSubtitle(String(track.index))
-                                    reloadWithSettings({ subtitleTrack: String(track.index) })
+                                    if (!track.is_bitmap) {
+                                      setSelectedSubtitle(track.index)
+                                    }
                                   }}
                                   className={`w-full text-left px-3 py-2 rounded text-sm transition-colors mb-1 ${
-                                    selectedSubtitle === String(track.index)
+                                    track.is_bitmap
+                                      ? 'text-slate-600 cursor-not-allowed'
+                                      : selectedSubtitle === track.index
                                       ? 'bg-indigo-600 text-white'
                                       : 'text-slate-300 hover:bg-slate-800'
                                   }`}
                                 >
-                                  <span className="text-white">{track.language?.toUpperCase()}</span>
-                                  <span className="text-slate-400 ml-2">{track.title}</span>
+                                  <span className={track.is_bitmap ? 'text-slate-600' : 'text-white'}>
+                                    {track.language?.toUpperCase()}
+                                  </span>
+                                  {track.title && <span className="text-slate-400 ml-2">{track.title}</span>}
+                                  {track.is_bitmap && (
+                                    <span className="text-slate-600 ml-1 text-xs block">
+                                      (requires burn-in, not supported)
+                                    </span>
+                                  )}
                                 </button>
                               ))}
                             </div>
