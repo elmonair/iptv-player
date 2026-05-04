@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, useNavigate, useLocation, Navigate } from
 import Onboarding from './pages/Onboarding'
 import Loading from './pages/Loading'
 import HomePage from './pages/HomePage'
+import Home2 from './pages/Home2'
 import ChannelCategories from './pages/ChannelCategories'
 import CategoryChannelList from './pages/CategoryChannelList'
 import TestPlayer from './pages/TestPlayer'
@@ -12,10 +13,12 @@ import MovieDetail from './pages/MovieDetail'
 import WatchLegacyRedirect from './pages/WatchLegacyRedirect'
 import SearchPage from './pages/SearchPage'
 import EpgPage from './pages/EpgPage'
+import SettingsPage from './pages/SettingsPage'
 import ErrorBoundary from './components/ErrorBoundary'
 import { usePlaylistStore } from './stores/playlistStore'
 import { useFavoritesStore } from './stores/favoritesStore'
 import { useWatchHistoryStore } from './stores/watchHistoryStore'
+import { useLicenseStore } from './stores/licenseStore'
 import { db } from './lib/db'
 import { parseAndStoreXmltv, clearEpgForSource } from './lib/epgParser'
 
@@ -25,7 +28,12 @@ function AppContent() {
   const { loaded, loadSourcesFromDb, getActiveSource, activeSourceId } = usePlaylistStore()
   const loadFavorites = useFavoritesStore((state) => state.loadFavorites)
   const loadWatchHistory = useWatchHistoryStore((state) => state.loadWatchHistory)
+  const initDeviceId = useLicenseStore((s) => s.initDeviceId)
   const initialRouteHandled = useRef(false)
+
+  useEffect(() => {
+    initDeviceId()
+  }, [initDeviceId])
 
   useEffect(() => {
     if (initialRouteHandled.current) return
@@ -99,6 +107,7 @@ function AppContent() {
       <Route path="/" element={<Onboarding />} />
       <Route path="/loading" element={<Loading />} />
       <Route path="/home" element={<HomePage />} />
+      <Route path="/home2" element={<Home2 />} />
       <Route path="/live" element={<ChannelCategories />} />
       <Route path="/live/:categoryId" element={<CategoryChannelList />} />
       <Route path="/movies" element={<Navigate to="/live?tab=movies" replace />} />
@@ -110,6 +119,7 @@ function AppContent() {
       <Route path="/watch/episode/:episodeId" element={<Watch />} />
       <Route path="/watch/:id" element={<WatchLegacyRedirect />} />
       <Route path="/search" element={<SearchPage />} />
+      <Route path="/settings" element={<SettingsPage />} />
       <Route path="/epg" element={<EpgPage />} />
       <Route path="/test-player" element={<TestPlayer />} />
     </Routes>

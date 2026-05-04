@@ -1,12 +1,14 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronDown, ChevronUp, Star, ChevronRight, ArrowLeft, Heart } from 'lucide-react'
+import { ChevronDown, ChevronUp, Star, ChevronRight, ArrowLeft, Heart, Search, Calendar } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
 import { useFavoritesStore } from '../stores/favoritesStore'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '../lib/db'
 import { TopNavBar } from '../components/TopNavBar'
+import { useTranslation } from '../lib/i18n'
+import { useLicenseStore } from '../stores/licenseStore'
 import MovieCard from '../components/movies/MovieCard'
 import SeriesCard from '../components/series/SeriesCard'
 import type { CategoryRecord, ChannelRecord, MovieRecord, SeriesRecord } from '../lib/db'
@@ -26,6 +28,7 @@ function safeName(item: unknown): string {
 
 export default function ChannelCategories() {
   const navigate = useNavigate()
+  const { t } = useTranslation()
   const [searchParams] = useSearchParams()
   const tabParam = searchParams.get('tab') as Tab | null
   const categoryParam = searchParams.get('category')
@@ -248,10 +251,10 @@ export default function ChannelCategories() {
 
   const getCategoryName = () => {
     if (selectedCategoryId === null) {
-      return selectedTab === 'channels' ? 'All Channels' : 'Select a category'
+      return selectedTab === 'channels' ? t('allChannels') : t('selectACategory')
     }
     const cat = categories?.find(c => c?.id === selectedCategoryId)
-    return safeName(cat) || (selectedTab === 'channels' ? 'Channels' : 'Select a category')
+    return safeName(cat) || (selectedTab === 'channels' ? t('channelsTab') : t('selectACategory'))
   }
 
   const handleTabClick = (tab: Tab) => {
@@ -402,7 +405,47 @@ export default function ChannelCategories() {
       <div className="min-h-screen bg-slate-900">
         <TopNavBar />
         <div className="flex items-center justify-center h-[calc(100vh-64px)]">
-          <p className="text-slate-400">No playlist active</p>
+          <p className="text-slate-400">{t('noPlaylistActive')}</p>
+        </div>
+      </div>
+    )
+  }
+
+  const licenseStatus = useLicenseStore((s) => s.status)
+  const deviceId = useLicenseStore((s) => s.deviceId)
+
+  if (licenseStatus === 'expired') {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col">
+        <TopNavBar />
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="text-center max-w-md px-6">
+            <div className="w-16 h-16 mx-auto mb-6 rounded-full bg-red-500/10 flex items-center justify-center">
+              <svg className="w-8 h-8 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <h2 className="text-2xl font-bold text-white mb-2">Your subscription has expired</h2>
+            <p className="text-slate-400 text-sm mb-6">Contact your provider to renew</p>
+            <div className="inline-flex items-center gap-2 bg-white/5 px-4 py-2 rounded-lg border border-slate-700 mb-6">
+              <span className="text-slate-500 text-sm">Device ID:</span>
+              <span className="text-white font-mono text-sm uppercase">{deviceId || '--------'}</span>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+              <button
+                onClick={() => navigate('/home')}
+                className="px-6 py-3 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-yellow-500/50 min-h-[48px]"
+              >
+                Home
+              </button>
+              <button
+                onClick={() => navigate('/settings')}
+                className="px-6 py-3 bg-slate-700 hover:bg-slate-600 text-white font-medium rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[48px]"
+              >
+                Settings
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     )
@@ -422,10 +465,10 @@ export default function ChannelCategories() {
         {/* Left Column: Categories - Hidden on mobile when showing items */}
         <div className={`bg-slate-900 flex flex-col ${isDesktop ? 'flex-shrink-0 w-[400px] border-r border-slate-700' : 'flex-1 min-h-0 overflow-hidden'} ${showMobileItemsView ? 'hidden' : 'flex'}`}>
           {/* Playlist Info */}
-          <div className="relative flex-shrink-0">
+          <div className="relative flex-shrink-0 flex items-center">
             <button
               onClick={() => setShowPlaylistDropdown(!showPlaylistDropdown)}
-              className="w-full bg-slate-800 px-4 py-3 border-b border-slate-700 flex items-center justify-between hover:bg-slate-750 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
+              className="flex-1 bg-slate-800 px-4 py-3 border-b border-slate-700 flex items-center justify-between hover:bg-slate-750 transition-colors focus:outline-none focus:ring-2 focus:ring-inset focus:ring-indigo-500/50"
             >
               <div className="flex-1 text-left min-w-0">
                 <p className="text-base font-medium text-white truncate">{activeSource.name}</p>
@@ -437,6 +480,22 @@ export default function ChannelCategories() {
                 {showPlaylistDropdown ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
               </div>
             </button>
+            <div className="flex items-center gap-1 px-3 border-b border-slate-700 bg-slate-800/50">
+              <button
+                onClick={() => navigate('/search')}
+                className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                aria-label={t('search')}
+              >
+                <Search size={18} />
+              </button>
+              <button
+                onClick={() => navigate('/epg')}
+                className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-slate-700 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                aria-label={t('tvGuide')}
+              >
+                <Calendar size={18} />
+              </button>
+            </div>
             {showPlaylistDropdown && (
               <SidebarPlaylistDropdown
                 onClose={() => setShowPlaylistDropdown(false)}
@@ -454,7 +513,7 @@ export default function ChannelCategories() {
                   : 'text-slate-400 border-transparent hover:text-white'
               }`}
             >
-              Channels
+              {t('channelsTab')}
             </button>
             <button
               onClick={() => handleTabClick('movies')}
@@ -464,7 +523,7 @@ export default function ChannelCategories() {
                   : 'text-slate-400 border-transparent hover:text-white'
               }`}
             >
-              Movies
+              {t('moviesTab')}
             </button>
             <button
               onClick={() => handleTabClick('series')}
@@ -474,7 +533,7 @@ export default function ChannelCategories() {
                   : 'text-slate-400 border-transparent hover:text-white'
               }`}
             >
-              Series
+              {t('seriesTab')}
             </button>
           </div>
 
@@ -482,7 +541,7 @@ export default function ChannelCategories() {
           <div ref={categoryListRef} className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain" style={{ touchAction: 'pan-y' }}>
             {categoriesLoading && (
               <div className="flex items-center justify-center h-32">
-                <p className="text-slate-400">Loading categories...</p>
+                <p className="text-slate-400">{t('loadingCategories')}</p>
               </div>
             )}
             
