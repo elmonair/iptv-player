@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film } from 'lucide-react'
+import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Settings } from 'lucide-react'
 import mpegts from 'mpegts.js'
 import { db } from '../lib/db'
-import { usePlaylistStore } from '../stores/playlistStore'
+import { usePlaylistStore, type PlaylistSource } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
 import { getSeriesInfo } from '../lib/xtream'
 import type { ChannelRecord, MovieRecord } from '../lib/db'
@@ -27,6 +27,30 @@ type EpisodeInfo = {
   }>
 }
 type WatchableItem = { type: 'channel'; data: ChannelRecord } | { type: 'movie'; data: MovieRecord } | { type: 'episode'; data: EpisodeInfo } | null
+
+type AudioTrack = {
+  index: number
+  stream_index: number
+  codec: string
+  language: string
+  title: string | null
+  channels: number | null
+  channel_layout: string | null
+  is_default: boolean
+  browser_compatible: boolean
+}
+
+type SubtitleTrack = {
+  index: number
+  stream_index: number
+  codec: string
+  language: string
+  title: string | null
+  forced: boolean
+  is_default: boolean
+  is_bitmap: boolean
+  extractable: boolean
+}
 
 function getItemName(item: WatchableItem): string {
   if (!item) return ''
@@ -58,6 +82,12 @@ export default function Watch() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true)
   const [currentItemId, setCurrentItemId] = useState<string>('')
   const [currentType, setCurrentType] = useState<'channel' | 'movie' | 'episode'>('channel')
+  const [audioTracks, setAudioTracks] = useState<AudioTrack[]>([])
+  const [subtitleTracks, setSubtitleTracks] = useState<SubtitleTrack[]>([])
+  const [selectedSubtitle, setSelectedSubtitle] = useState<number | null>(null)
+  const [showSettings, setShowSettings] = useState(false)
+  const [activeSource, setActiveSource] = useState<PlaylistSource | null>(null)
+  const lastKnownTimeRef = useRef<number>(0)
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
 
@@ -113,6 +143,32 @@ export default function Watch() {
     navigate('/live')
   }, [currentType, location.state, navigate])
 
+  const probeTracks = useCallback(async (streamId: number, type: 'movie' | 'series', ext: string) => {
+    const source = activeSource
+    if (!source || source.type !== 'xtream') return
+
+    const params = new URLSearchParams({
+      serverUrl: source.serverUrl,
+      username: source.username,
+      password: source.password,
+      ext,
+    })
+
+    try {
+      const res = await fetch(`/probe/${type}/${streamId}?${params.toString()}`)
+      if (!res.ok) {
+        console.warn('[Probe] Failed to fetch:', res.status)
+        return
+      }
+      const data = await res.json()
+      console.log('[Probe] Tracks:', data)
+      setAudioTracks(data.audio_tracks || [])
+      setSubtitleTracks(data.subtitle_tracks || [])
+    } catch (err) {
+      console.error('[Probe] Failed:', err)
+    }
+  }, [activeSource])
+
   const buildStreamUrl = (source: { serverUrl: string; username: string; password: string }, item: WatchableItem): string => {
     if (!item) return ''
     if (item.type === 'channel') {
@@ -146,6 +202,11 @@ export default function Watch() {
     setStatus('loading')
     setVideoInfo(null)
     setCategoryName(episodeInfo.seriesName)
+    setActiveSource(source)
+    setAudioTracks([])
+    setSubtitleTracks([])
+    setSelectedSubtitle(null)
+    setShowSettings(false)
 
     let sidebarEpisodes: WatchableItem[] = [episodeItem]
     if (episodeInfo.allEpisodes && episodeInfo.allEpisodes.length > 0) {
@@ -189,6 +250,7 @@ export default function Watch() {
     }
     videoEl.onplaying = () => {
       setStatus('playing')
+      probeTracks(episodeInfo.streamId, 'series', episodeInfo.containerExtension)
     }
     videoEl.onerror = () => {
       console.error('[Watch] Episode video error:', videoEl.error)
@@ -253,6 +315,11 @@ export default function Watch() {
     setCurrentType(item.type)
     setStatus('loading')
     setVideoInfo(null)
+    setActiveSource(source)
+    setAudioTracks([])
+    setSubtitleTracks([])
+    setSelectedSubtitle(null)
+    setShowSettings(false)
 
     const allItems = allItemsRef.current
     const categoryItms = allItems.filter((i) => i && i.type === item.type && i.data.categoryId === item.data.categoryId)
@@ -374,6 +441,10 @@ export default function Watch() {
       }
       videoEl.onplaying = () => {
         setStatus('playing')
+        if (item.type === 'movie') {
+          const ext = (item.data as MovieRecord).containerExtension || 'mp4'
+          probeTracks(parseInt((item.data as MovieRecord).streamId, 10), 'movie', ext)
+        }
       }
       videoEl.onerror = () => {
         console.error('[Watch] Movie video error:', videoEl.error)
@@ -490,6 +561,35 @@ export default function Watch() {
   }, [currentItemId])
 
   useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    const apply = () => {
+      const tracks = video.textTracks
+      for (let i = 0; i < tracks.length; i++) {
+        tracks[i].mode = 'disabled'
+      }
+      if (selectedSubtitle !== null && tracks.length > 0) {
+        tracks[tracks.length - 1].mode = 'showing'
+      }
+    }
+    apply()
+    video.textTracks.addEventListener('addtrack', apply)
+    return () => video.textTracks.removeEventListener('addtrack', apply)
+  }, [selectedSubtitle])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    const onTime = () => {
+      if (video.currentTime > 1 && !isNaN(video.currentTime)) {
+        lastKnownTimeRef.current = video.currentTime
+      }
+    }
+    video.addEventListener('timeupdate', onTime)
+    return () => video.removeEventListener('timeupdate', onTime)
+  }, [])
+
+  useEffect(() => {
     if (!channelId && !episodeId) {
       navigate('/live')
       return
@@ -564,6 +664,15 @@ export default function Watch() {
     }
   }, [channelId, episodeId, navigate, zapTo, playEpisode, destroyPlayer, location])
 
+  useEffect(() => {
+    return () => {
+      setAudioTracks([])
+      setSubtitleTracks([])
+      setSelectedSubtitle(null)
+      setShowSettings(false)
+    }
+  }, [channelId, episodeId])
+
   return (
     <div className="fixed inset-0 flex flex-col bg-slate-900">
       {/* Top Navigation Bar */}
@@ -613,6 +722,92 @@ export default function Watch() {
           >
             {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
           </button>
+          {(currentType === 'movie' || currentType === 'episode') && (
+            <div className="relative">
+              <button
+                onClick={() => setShowSettings(!showSettings)}
+                className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 sm:focus:ring-4 focus:ring-indigo-500/50"
+                aria-label="Audio & subtitle settings"
+              >
+                <Settings className="w-5 h-5" />
+              </button>
+              {showSettings && (
+                <div className="absolute right-0 top-full mt-2 w-72 max-h-96 overflow-y-auto bg-slate-800/95 backdrop-blur-sm border border-slate-700 rounded-lg shadow-xl z-50 p-4">
+                  {audioTracks.length > 1 && (
+                    <div className="mb-4">
+                      <p className="text-xs uppercase text-slate-400 mb-2 tracking-wide">Audio</p>
+                      {audioTracks.map((t) => (
+                        <div
+                          key={t.index}
+                          className={'w-full text-left px-3 py-2 rounded text-sm mb-1 ' +
+                            (t.is_default ? 'bg-indigo-600/30 text-white' : 'text-slate-300')}
+                        >
+                          <span className="text-white">{(t.language || 'UND').toUpperCase()}</span>
+                          <span className="text-slate-400 ml-2">
+                            {t.codec.toUpperCase()}
+                            {t.channel_layout ? ' · ' + t.channel_layout : t.channels ? ' · ' + t.channels + 'ch' : ''}
+                          </span>
+                          {t.title && <span className="text-slate-500 ml-2">{t.title}</span>}
+                          {!t.browser_compatible && (
+                            <span className="text-amber-500/70 ml-1 text-xs">(needs transcode)</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {subtitleTracks.length > 0 && (
+                    <div>
+                      <p className="text-xs uppercase text-slate-400 mb-2 tracking-wide">Subtitles</p>
+                      <button
+                        onClick={() => setSelectedSubtitle(null)}
+                        className={'w-full text-left px-3 py-2 rounded text-sm transition-colors mb-1 ' +
+                          (selectedSubtitle === null
+                            ? 'bg-indigo-600 text-white'
+                            : 'text-slate-300 hover:bg-slate-800')}
+                      >
+                        Off
+                      </button>
+                      {subtitleTracks.map((t) => {
+                        const isBitmap = t.is_bitmap === true
+                        const isSelected = selectedSubtitle === t.index
+                        return (
+                          <button
+                            key={t.index}
+                            disabled={isBitmap}
+                            onClick={() => {
+                              if (isBitmap) return
+                              if (videoRef.current && videoRef.current.currentTime > 1) {
+                                lastKnownTimeRef.current = videoRef.current.currentTime
+                              }
+                              setSelectedSubtitle(t.index)
+                            }}
+                            className={'w-full text-left px-3 py-2 rounded text-sm transition-colors mb-1 ' +
+                              (isBitmap ? 'text-slate-600 cursor-not-allowed'
+                                : isSelected ? 'bg-indigo-600 text-white'
+                                : 'text-slate-300 hover:bg-slate-800')}
+                          >
+                            <span className={isBitmap ? 'text-slate-600' : 'text-white'}>
+                              {(t.language || 'UND').toUpperCase()}
+                            </span>
+                            {t.title && <span className="text-slate-400 ml-2">{t.title}</span>}
+                            {t.forced && <span className="text-slate-500 ml-1 text-xs">(forced)</span>}
+                            {isBitmap && (
+                              <span className="text-slate-600 ml-1 text-xs block">
+                                (requires burn-in, not supported)
+                              </span>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {(audioTracks.length === 0 && subtitleTracks.length === 0) && (
+                    <p className="text-slate-500 text-sm text-center py-4">No tracks available</p>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </header>
 
@@ -627,7 +822,35 @@ export default function Watch() {
               controls
               playsInline
               className="w-full h-full object-contain"
-            />
+            >
+              {selectedSubtitle !== null &&
+               subtitleTracks[selectedSubtitle] !== undefined &&
+               subtitleTracks[selectedSubtitle].extractable &&
+               !subtitleTracks[selectedSubtitle].is_bitmap &&
+               activeSource?.type === 'xtream' && (() => {
+                const t = subtitleTracks[selectedSubtitle]
+                const streamId = currentType === 'episode' ? episodeId : currentItemId
+                if (!streamId) return null
+                const p = new URLSearchParams({
+                  serverUrl: activeSource.serverUrl,
+                  username: activeSource.username,
+                  password: activeSource.password,
+                  ext: currentType === 'episode'
+                    ? (location.state as EpisodeInfo)?.containerExtension || 'mkv'
+                    : '',
+                })
+                return (
+                  <track
+                    key={'sub-' + currentType + '-' + streamId + '-' + selectedSubtitle}
+                    kind="subtitles"
+                    src={'/subtitles/' + (currentType === 'episode' ? 'series' : currentType) + '/' + streamId + '/' + selectedSubtitle + '.vtt?' + p}
+                    srcLang={t?.language || 'und'}
+                    label={t?.title || t?.language?.toUpperCase() || 'Sub'}
+                    default
+                  />
+                )
+              })()}
+            </video>
             {status === 'ready-click-to-play' && (
               <button
                 onClick={handlePlayClick}
