@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronDown, ChevronUp, Star, ChevronRight, ArrowLeft, Heart, Search, Calendar } from 'lucide-react'
+import { ChevronDown, ChevronUp, Star, ChevronRight, ArrowLeft, Search, Calendar } from 'lucide-react'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { ALL_ITEMS_CACHE_KEY, FAVORITES_CATEGORY_ID, getCategoryCacheKey, useBrowseStore } from '../stores/browseStore'
 import { useFavoritesStore } from '../stores/favoritesStore'

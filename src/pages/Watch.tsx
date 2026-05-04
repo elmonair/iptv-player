@@ -122,6 +122,12 @@ function extractStreamId(routeType: string | null, routeId: string | undefined, 
 }
 
 export default function Watch() {
+  const mountCountRef = useRef(0)
+  useEffect(() => {
+    mountCountRef.current++
+    console.log('[Watch] MOUNT #', mountCountRef.current)
+    return () => console.log('[Watch] UNMOUNT #', mountCountRef.current)
+  }, [])
   const { id: routeId, episodeId } = useParams<{ id: string; episodeId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
@@ -140,7 +146,18 @@ export default function Watch() {
   const channelErrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activeItemRef = useRef<HTMLButtonElement>(null)
   const hasResumedRef = useRef(false)
+  const seekInProgressRef = useRef(false)
+  const lastChannelTimeRef = useRef(0)
+  const stuckCheckRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const channelLoadTimeRef = useRef<number>(0)
+  const allEpisodesRef = useRef<EpisodeInfo['allEpisodes']>([])
+  const currentSeriesIdRef = useRef<string>('')
+  const currentSeriesNameRef = useRef<string>('')
   const handleChannelUnavailableRef = useRef<(message: string) => void>(() => {})
+
+  useEffect(() => {
+    return () => { console.log('[Watch] COMPONENT UNMOUNTING') }
+  }, [])
 
   const pathname = location.pathname
   const routeType: 'live' | 'movie' | 'episode' | null =
@@ -263,6 +280,12 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       clearTimeout(channelErrorTimeoutRef.current)
       channelErrorTimeoutRef.current = null
     }
+    if (stuckCheckRef.current) {
+      clearInterval(stuckCheckRef.current)
+      stuckCheckRef.current = null
+    }
+    lastChannelTimeRef.current = 0
+    channelLoadTimeRef.current = 0
   }, [])
 
   const startProgressTracking = useCallback((itemType: 'channel' | 'movie' | 'episode', itemId: string) => {
@@ -457,10 +480,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     return false
   }, [])
 
-  const playEpisode = useCallback(async (episodeInfo: EpisodeInfo) => {
+  const playEpisode = useCallback(async (episodeInfo: EpisodeInfo, overrideSource?: Awaited<ReturnType<typeof getActiveSource>> | null) => {
     if (!videoRef.current) return
 
-    const source = activeSource
+    const source = overrideSource || activeSource
     if (!source || source.type !== 'xtream') return
 
     destroyPlayer()
@@ -479,14 +502,24 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setVideoInfo(null)
     setCategoryName(episodeInfo.seriesName)
 
-    let sidebarEpisodes: WatchableItem[] = [episodeItem]
     if (episodeInfo.allEpisodes && episodeInfo.allEpisodes.length > 0) {
-      sidebarEpisodes = episodeInfo.allEpisodes.map((ep) => ({
+      allEpisodesRef.current = episodeInfo.allEpisodes
+      currentSeriesIdRef.current = episodeInfo.seriesId
+      currentSeriesNameRef.current = episodeInfo.seriesName
+    }
+
+    const allEps = allEpisodesRef.current
+    const seriesId = episodeInfo.seriesId || currentSeriesIdRef.current
+    const seriesName = episodeInfo.seriesName || currentSeriesNameRef.current
+
+    let sidebarEpisodes: WatchableItem[] = [episodeItem]
+    if (allEps && allEps.length > 0) {
+      sidebarEpisodes = allEps.map((ep) => ({
         type: 'episode' as const,
         data: {
           id: String(ep.id),
-          seriesId: episodeInfo.seriesId,
-          seriesName: episodeInfo.seriesName,
+          seriesId,
+          seriesName,
           seasonNumber: ep.seasonNumber,
           episodeNumber: ep.episode_num,
           episodeTitle: ep.title || `Episode ${ep.episode_num}`,
@@ -508,6 +541,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setCurrentStreamUrl(streamUrl)
 
     const videoEl = videoRef.current
+    if (!videoEl) {
+      console.warn('[Watch] videoRef not ready after await, skipping playEpisode')
+      return
+    }
 
     const episodeId = String(episodeInfo.streamId)
     let savedProgress: { position: number } | null = null
@@ -519,6 +556,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       }
     } catch (err) {
       console.error('[Watch] Failed to query episode watch history:', err)
+    }
+
+    if (!videoRef.current) {
+      console.warn('[Watch] videoRef not ready after Dexie await, skipping episode setup')
+      return
     }
 
     if (savedProgress && savedProgress.position > 30) {
@@ -653,6 +695,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       setCategoryName('Unknown')
     }
 
+    if (!videoRef.current) {
+      console.warn('[Watch] videoRef not ready after await, aborting zapTo')
+      return
+    }
+
     const streamUrl = buildStreamUrl(source, item)
 
     if (!streamUrl) {
@@ -667,6 +714,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setCurrentStreamUrl(streamUrl)
 
     const videoEl = videoRef.current
+    if (!videoEl) {
+      console.warn('[Watch] videoRef not ready after await, skipping zapTo')
+      return
+    }
 
     if (item.type === 'channel') {
       if (mpegts.isSupported()) {
@@ -750,6 +801,41 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
         player.load()
 
+        // Start stuck-time detection for this channel
+        lastChannelTimeRef.current = 0
+        channelLoadTimeRef.current = Date.now()
+        if (stuckCheckRef.current) clearInterval(stuckCheckRef.current)
+        stuckCheckRef.current = setInterval(() => {
+          const v = videoRef.current
+          if (!v || !currentStreamUrlRef.current) return
+          const ct = v.currentTime
+          const elapsed = (Date.now() - channelLoadTimeRef.current) / 1000
+
+          if (elapsed > 8 && ct === 0) {
+            console.warn('[StuckCheck] No playback after 8s — currentTime still 0')
+            handleChannelUnavailableRef.current('Channel not responding')
+            return
+          }
+          if (ct > 3 && v.videoWidth === 0) {
+            console.warn('[StuckCheck] No video frames — videoWidth is 0, currentTime:', ct)
+            handleChannelUnavailableRef.current('Channel not responding')
+            return
+          }
+          if (!v.paused && lastChannelTimeRef.current > 0 && ct === lastChannelTimeRef.current) {
+            console.warn('[StuckCheck] Video stuck — time not progressing, currentTime:', ct)
+            handleChannelUnavailableRef.current('Channel stalled')
+            return
+          }
+          lastChannelTimeRef.current = ct
+        }, 3000)
+
+        videoEl.addEventListener('playing', () => {
+          if (stuckCheckRef.current) { clearInterval(stuckCheckRef.current); stuckCheckRef.current = null }
+        }, { once: true })
+        videoEl.addEventListener('error', () => {
+          if (stuckCheckRef.current) { clearInterval(stuckCheckRef.current); stuckCheckRef.current = null }
+        }, { once: true })
+
         videoEl.oncanplay = async () => {
           if (videoEl.videoWidth && videoEl.videoHeight) {
             setVideoInfo((prev) => ({
@@ -777,6 +863,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         videoEl.onplaying = () => {
           clearChannelErrorTimeout()
           clearAutoAdvanceTimer()
+          if (stuckCheckRef.current) { clearInterval(stuckCheckRef.current); stuckCheckRef.current = null }
           setStatus('playing')
           setLastChannelId(item.data.id)
           statsIntervalRef.current = setInterval(() => {
@@ -819,6 +906,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         }
       } catch (err) {
         console.error('[Watch] Failed to query watch history:', err)
+      }
+
+      if (!videoRef.current) {
+        console.warn('[Watch] videoRef not ready after movie resume await, aborting zapTo')
+        return
       }
 
       if (savedProgress && savedProgress.position > 30) {
@@ -884,9 +976,14 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       }
       videoEl.onerror = () => {
         if (!currentStreamUrl) return
-        console.error('[Watch] Movie video error:', videoEl.error?.code, videoEl.error?.message)
-        setStatus('error')
+        if (seekInProgressRef.current) {
+          console.log('[Watch] Skipping movie error during seek')
+          return
+        }
         const errCode = videoEl.error?.code ?? 0
+        if (errCode === 1) return
+        console.error('[Watch] Movie video error:', errCode, videoEl.error?.message)
+        setStatus('error')
         if (errCode === 4) {
           setErrorMsg('Video format not supported by browser. Copy URL for VLC.')
         } else {
@@ -931,6 +1028,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     console.log('[SKIP] Switching to transcode URL with skip:', newTime, 'URL:', transcodeUrl)
     setSeekOffset(newTime)
     setCurrentStreamUrl(transcodeUrl)
+    seekInProgressRef.current = true
+    setTimeout(() => { seekInProgressRef.current = false }, 3000)
     videoRef.current.src = transcodeUrl
     videoRef.current.load()
     videoRef.current.play().catch(() => {})
@@ -989,17 +1088,18 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
     channelErrorTimeoutRef.current = setTimeout(() => {
       if (!currentStreamUrlRef.current) return
+      console.warn('[Channel] Showing error overlay:', message)
       setStatus('error')
       setErrorMsg(message)
       startAutoAdvanceTimer()
-    }, 3000)
+    }, 1000)
   }, [startAutoAdvanceTimer])
 
   handleChannelUnavailableRef.current = handleChannelUnavailable
 
   useEffect(() => {
     hasResumedRef.current = false
-  }, [currentItemId])
+  }, [currentItemId, routeId, episodeId])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -1105,6 +1205,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const showMainContent = status !== 'error' || isChannelError
 
   const initRef = useRef<boolean>(false)
+  const locationStateRef = useRef<typeof location.state>(location.state)
+
+  useEffect(() => {
+    locationStateRef.current = location.state
+  }, [location.state])
 
   useEffect(() => {
     if (!routeId && !episodeId) {
@@ -1122,7 +1227,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         routeType,
         routeId,
         episodeId,
-        locationState: location.state,
+        locationState: locationStateRef.current,
         sourceLoaded: !!getActiveSource(),
       })
 
@@ -1139,8 +1244,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
         console.log('[Watch] Source:', source.name ?? 'unknown', '| route:', routeType, routeId ?? episodeId)
 
-        if (episodeId && location.state) {
-          let episodeState: EpisodeInfo = location.state as EpisodeInfo
+        if (episodeId && locationStateRef.current) {
+          let episodeState: EpisodeInfo = locationStateRef.current as EpisodeInfo
 
           if (!episodeState.allEpisodes && episodeState.seriesId) {
             try {
@@ -1171,7 +1276,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
             setRealDuration((episodeState as EpisodeInfo).realDuration!)
           }
 
-          await playEpisode(episodeState)
+          await playEpisode(episodeState, source)
           initRef.current = false
           return
         }
@@ -1184,9 +1289,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         const channelItems: WatchableItem[] = channels.map((c) => ({ type: 'channel' as const, data: c }))
         const movieItems: WatchableItem[] = movies.map((m) => ({ type: 'movie' as const, data: m }))
 
-        const allItems: WatchableItem[] = [...channelItems, ...movieItems].sort((a, b) =>
-          getItemName(a).localeCompare(getItemName(b))
-        )
+        const allItems: WatchableItem[] = [...channelItems, ...movieItems]
         allItemsRef.current = allItems
 
         const now = Math.floor(Date.now() / 1000)
@@ -1218,10 +1321,12 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     init()
 
     return () => {
+      console.log('[Watch] Cleanup — route changed or unmount')
       initRef.current = false
       destroyPlayer()
     }
-  }, [routeId, routeType, episodeId, navigate, zapTo, playEpisode, destroyPlayer, location])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeId, routeType, episodeId])
 
   // Prompt 1: Always fetch real duration on mount for VOD content
   useEffect(() => {
@@ -1243,8 +1348,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
               setRealDuration(dur)
             }
           }
-        } else if (routeType === 'episode' && episodeId && location.state) {
-          const episodeState = location.state as EpisodeInfo
+        } else if (routeType === 'episode' && episodeId && locationStateRef.current) {
+          const episodeState = locationStateRef.current as EpisodeInfo
           if (episodeState.seriesId) {
             const seriesInfo = await getSeriesInfo(source.serverUrl, {
               username: source.username,
@@ -1269,7 +1374,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       }
     }
     fetchRealDuration()
-  }, [routeType, routeId, episodeId, location])
+  }, [routeType, routeId, episodeId])
 
   useEffect(() => {
     if (currentType === 'channel' || !activeSource || activeSource.type !== 'xtream') return
@@ -1327,6 +1432,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
 
     setSeekOffset(currentPos)
     setCurrentStreamUrl(newUrl)
+    seekInProgressRef.current = true
+    setTimeout(() => { seekInProgressRef.current = false }, 3000)
     videoRef.current.src = newUrl
     videoRef.current.load()
     videoRef.current.play().catch(() => {})
@@ -1588,11 +1695,16 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                               const transcodeUrl = buildTranscodeUrl(source, streamId, currentContainerExtension, transcodeType, target)
                               console.log('[SEEK] New transcode URL:', transcodeUrl)
 
-                              setSeekOffset(target)
-                              setCurrentStreamUrl(transcodeUrl)
-                              videoRef.current.src = transcodeUrl
-                              videoRef.current.load()
-                              videoRef.current.play().catch((err) => console.error('[SEEK] Play failed:', err))
+setSeekOffset(target)
+                               setCurrentStreamUrl(transcodeUrl)
+                               seekInProgressRef.current = true
+                               setTimeout(() => { seekInProgressRef.current = false }, 3000)
+                               videoRef.current.src = transcodeUrl
+                               videoRef.current.load()
+                               videoRef.current.play().catch((err) => {
+                                 if (err instanceof Error && err.name === 'AbortError') return
+                                 console.error('[SEEK] Play failed:', err)
+                               })
                             }
                             const doSeekWrapper = (ev: MouseEvent) => { ev.stopPropagation(); doSeek(ev) }
                             const onUp = () => {
@@ -1954,17 +2066,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                       <button
                         key={itemId}
                         ref={isActive ? activeItemRef : null}
-                        onClick={() => {
+onClick={() => {
                           if (item.type === 'episode') {
-                            const ep = item.data as EpisodeInfo
-                            navigate(`/watch/episode/${ep.streamId}`, {
-                              state: ep,
-                            })
-                          } else if (item.type === 'movie') {
-                            navigate(`/watch/movie/${encodeURIComponent(item.data.id)}`)
+                            playEpisode(item.data as EpisodeInfo, activeSource)
                           } else {
-                            const ch = item.data as ChannelRecord
-                            navigate(`/watch/live/${encodeURIComponent(ch.id)}`)
+                            zapTo(item.data.id)
                           }
                         }}
                         className={`flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 min-h-[48px] w-full ${
