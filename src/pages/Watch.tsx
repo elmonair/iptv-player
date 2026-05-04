@@ -1851,15 +1851,20 @@ setSeekOffset(target)
                             />
                           </div>
                           <div className="flex-1" />
-                          {(audioTracks.length > 0 || subtitleTracks.length > 0) && (
-                            <button
-                              onClick={(e) => { e.stopPropagation(); setShowSettings(!showSettings) }}
-                              className="text-white/70 hover:text-white p-1"
-                              aria-label="Audio & subtitle settings"
-                            >
-                              <Settings className="w-5 h-5" />
-                            </button>
-                          )}
+                           {(audioTracks.length > 0 || subtitleTracks.length > 0) && (
+                             <button
+                               onClick={(e) => {
+                                 e.stopPropagation()
+                                 e.preventDefault()
+                                 console.log('[GEAR] clicked, showSettings:', showSettings)
+                                 setShowSettings(!showSettings)
+                               }}
+                               className="text-white/70 hover:text-white p-1"
+                               aria-label="Audio & subtitle settings"
+                             >
+                               <Settings className="w-5 h-5" />
+                             </button>
+                           )}
                           <button
                              onClick={(e) => {
                                e.stopPropagation()
