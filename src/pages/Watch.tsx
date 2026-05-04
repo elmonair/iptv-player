@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart } from 'lucide-react'
+import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart, Settings } from 'lucide-react'
 import mpegts from 'mpegts.js'
 import Hls from 'hls.js'
 import { db } from '../lib/db'
@@ -77,6 +77,7 @@ export default function Watch() {
   const channelErrorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const activeItemRef = useRef<HTMLButtonElement>(null)
   const hasResumedRef = useRef(false)
+  const lastKnownTimeRef = useRef<number>(0)
   const handleChannelUnavailableRef = useRef<(message: string) => void>(() => {})
 
   const pathname = location.pathname
@@ -98,9 +99,24 @@ export default function Watch() {
   const [currentType, setCurrentType] = useState<'channel' | 'movie' | 'episode'>('channel')
   const [activeSource, setActiveSource] = useState<Awaited<ReturnType<typeof getActiveSource>> | null>(null)
   const [lastVideoErrorCode, setLastVideoErrorCode] = useState<number | null>(null)
-const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
+  const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const [autoAdvanceSeconds, setAutoAdvanceSeconds] = useState<number | null>(null)
   const [channelEpg, setChannelEpg] = useState<Record<string, EpgProgram | null>>({})
+  const [subtitleTracks, setSubtitleTracks] = useState<Array<{
+    index: number
+    codec: string
+    language: string
+    title: string | null
+    default: boolean
+    forced?: boolean
+    is_bitmap?: boolean
+    extractable?: boolean
+  }>>([])
+  const [selectedSubtitle, setSelectedSubtitle] = useState<number | null>(null)
+  const [showSubtitleMenu, setShowSubtitleMenu] = useState(false)
+  const [currentContainerExtension, setCurrentContainerExtension] = useState<string>('mkv')
+  const [currentSubtitleType, setCurrentSubtitleType] = useState<'movie' | 'series' | null>(null)
+  const [currentSubtitleStreamId, setCurrentSubtitleStreamId] = useState<string>('')
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
@@ -351,6 +367,32 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     return false
   }, [])
 
+  const probeSubtitleTracks = useCallback(async (
+    source: { serverUrl: string; username: string; password: string },
+    type: 'movie' | 'series',
+    streamId: string,
+    ext: string
+  ) => {
+    try {
+      const params = new URLSearchParams({
+        serverUrl: source.serverUrl,
+        username: source.username,
+        password: source.password,
+        ext,
+      })
+      const response = await fetch(`/probe/${type}/${streamId}?${params.toString()}`)
+      if (!response.ok) {
+        setSubtitleTracks([])
+        return
+      }
+      const data = await response.json() as { subtitle_tracks?: Array<{ index: number; codec: string; language: string; title: string | null; default: boolean; forced?: boolean; is_bitmap?: boolean; extractable?: boolean }> }
+      setSubtitleTracks(data.subtitle_tracks || [])
+    } catch (err) {
+      console.warn('[Watch] Subtitle probe failed:', err)
+      setSubtitleTracks([])
+    }
+  }, [])
+
   const playEpisode = useCallback(async (episodeInfo: EpisodeInfo) => {
     if (!videoRef.current) return
 
@@ -371,6 +413,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setLastVideoErrorCode(null)
     setVideoInfo(null)
     setCategoryName(episodeInfo.seriesName)
+    setSelectedSubtitle(null)
+    setSubtitleTracks([])
+    setCurrentContainerExtension(episodeInfo.containerExtension || 'mkv')
+    setCurrentSubtitleType('series')
+    setCurrentSubtitleStreamId(String(episodeInfo.streamId))
 
     let sidebarEpisodes: WatchableItem[] = [episodeItem]
     if (episodeInfo.allEpisodes && episodeInfo.allEpisodes.length > 0) {
@@ -399,6 +446,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     const streamUrl = buildStreamUrl(source, episodeItem)
     currentStreamUrlRef.current = streamUrl
     setCurrentStreamUrl(streamUrl)
+
+    void probeSubtitleTracks(source, 'series', String(episodeInfo.streamId), episodeInfo.containerExtension || 'mkv')
 
     const videoEl = videoRef.current
     setupVideoSource(videoEl, streamUrl)
@@ -453,7 +502,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         setErrorMsg(err instanceof Error ? err.message : String(err))
       }
     }
-  }, [destroyPlayer, getWatchHistory, startProgressTracking, handleLoadedMetadata])
+  }, [destroyPlayer, getWatchHistory, startProgressTracking, handleLoadedMetadata, probeSubtitleTracks])
 
   const zapTo = useCallback(async (targetItemId: string) => {
     if (!targetItemId || !videoRef.current) return
@@ -507,6 +556,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setErrorMsg(null)
     setLastVideoErrorCode(null)
     setVideoInfo(null)
+    setSelectedSubtitle(null)
+    setSubtitleTracks([])
+    setCurrentSubtitleType(null)
+    setCurrentSubtitleStreamId('')
 
     const allItems = allItemsRef.current
     const categoryItms = allItems.filter((i) => i && i.type === item.type && i.data.categoryId === item.data.categoryId)
@@ -541,6 +594,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     const videoEl = videoRef.current
 
     if (item.type === 'channel') {
+      setCurrentContainerExtension('mkv')
       if (mpegts.isSupported()) {
         const player = mpegts.createPlayer(
           {
@@ -682,7 +736,14 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       // Movie — use HLS.js for m3u8 streams, native for others
       setupVideoSource(videoEl, streamUrl)
 
-      const movieId = (item.data as MovieRecord).id
+      const movieData = item.data as MovieRecord
+      const movieExt = movieData.containerExtension || 'mp4'
+      setCurrentContainerExtension(movieExt)
+      setCurrentSubtitleType('movie')
+      setCurrentSubtitleStreamId(String(movieData.streamId))
+      void probeSubtitleTracks(source, 'movie', String(movieData.streamId), movieExt)
+
+      const movieId = movieData.id
       const history = getWatchHistory()
       const savedProgress = history.find(h => h.itemType === 'movie' && h.itemId === movieId)
 
@@ -727,7 +788,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         }
       }
     }
-  }, [destroyPlayer, getWatchHistory, startProgressTracking, handleLoadedMetadata, setLastChannelId, clearChannelErrorTimeout, clearAutoAdvanceTimer])
+  }, [destroyPlayer, getWatchHistory, startProgressTracking, handleLoadedMetadata, setLastChannelId, clearChannelErrorTimeout, clearAutoAdvanceTimer, probeSubtitleTracks])
 
   const handleFullscreenToggle = useCallback(() => {
     if (!document.fullscreenElement) {
@@ -803,6 +864,35 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   }, [currentItemId])
 
   useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    const onTime = () => {
+      if (video.currentTime > 1 && !isNaN(video.currentTime)) {
+        lastKnownTimeRef.current = video.currentTime
+      }
+    }
+    video.addEventListener('timeupdate', onTime)
+    return () => video.removeEventListener('timeupdate', onTime)
+  }, [])
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    const apply = () => {
+      const tracks = video.textTracks
+      for (let i = 0; i < tracks.length; i++) {
+        tracks[i].mode = 'disabled'
+      }
+      if (selectedSubtitle !== null && tracks.length > 0) {
+        tracks[tracks.length - 1].mode = 'showing'
+      }
+    }
+    apply()
+    video.textTracks.addEventListener('addtrack', apply)
+    return () => video.textTracks.removeEventListener('addtrack', apply)
+  }, [selectedSubtitle])
+
+  useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (currentType === 'episode' && (e.key === 'Escape' || e.key === 'Backspace')) {
         e.preventDefault()
@@ -871,6 +961,9 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       navigate('/live')
       return
     }
+
+    setSelectedSubtitle(null)
+    setSubtitleTracks([])
 
     const init = async () => {
       if (initRef.current) {
@@ -1010,6 +1103,77 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
           >
             <Heart className={`w-5 h-5 ${activeSource && currentItemId && isFavorite(currentType === 'channel' ? 'channel' : currentType === 'movie' ? 'movie' : 'episode', currentItemId) ? 'fill-current text-red-500' : ''}`} />
           </button>
+          <div className="relative">
+            <button
+              onClick={() => setShowSubtitleMenu((prev) => !prev)}
+              className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+              aria-label="Subtitle settings"
+            >
+              <Settings className="w-5 h-5" />
+            </button>
+            {showSubtitleMenu && subtitleTracks.length > 0 && (
+              <div className="absolute right-0 top-12 z-30 w-72 max-h-80 overflow-y-auto rounded-lg border border-slate-700 bg-slate-900 p-2 shadow-xl">
+                <div>
+                  <p className="text-xs uppercase text-slate-400 mb-2 tracking-wide">
+                    Subtitles
+                  </p>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setSelectedSubtitle(null)
+                    }}
+                    className={`w-full text-left px-3 py-2 rounded text-sm transition-colors mb-1 ${
+                      selectedSubtitle === null
+                        ? 'bg-indigo-600 text-white'
+                        : 'text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    Off
+                  </button>
+                  {subtitleTracks.map((track) => {
+                    const isBitmap = track.is_bitmap === true
+                    const isSelected = selectedSubtitle === track.index
+                    return (
+                      <button
+                        key={track.index}
+                        disabled={isBitmap}
+                        onClick={(e) => {
+                          if (isBitmap) return
+                          e.stopPropagation()
+                          if (videoRef.current && videoRef.current.currentTime > 1) {
+                            lastKnownTimeRef.current = videoRef.current.currentTime
+                          }
+                          setSelectedSubtitle(track.index)
+                        }}
+                        className={`w-full text-left px-3 py-2 rounded text-sm transition-colors mb-1 ${
+                          isBitmap
+                            ? 'text-slate-600 cursor-not-allowed'
+                            : isSelected
+                              ? 'bg-indigo-600 text-white'
+                              : 'text-slate-300 hover:bg-slate-800'
+                        }`}
+                      >
+                        <span className={isBitmap ? 'text-slate-600' : 'text-white'}>
+                          {track.language?.toUpperCase() || 'UND'}
+                        </span>
+                        {track.title && (
+                          <span className="text-slate-400 ml-2">{track.title}</span>
+                        )}
+                        {track.forced && (
+                          <span className="text-slate-500 ml-1 text-xs">(forced)</span>
+                        )}
+                        {isBitmap && (
+                          <span className="text-slate-600 ml-1 text-xs block">
+                            (requires burn-in, not supported)
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
           <button
             onClick={handleNextChannel}
             className="flex items-center justify-center w-11 h-11 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
@@ -1072,7 +1236,34 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                   controls
                   playsInline
                   className="w-full h-full object-contain"
-                />
+                >
+                  {selectedSubtitle !== null &&
+                   subtitleTracks[selectedSubtitle] !== undefined &&
+                   subtitleTracks[selectedSubtitle].extractable !== false &&
+                   !subtitleTracks[selectedSubtitle].is_bitmap &&
+                   activeSource?.type === 'xtream' &&
+                   currentSubtitleType !== null &&
+                   currentSubtitleStreamId && (() => {
+                     const subTrack = subtitleTracks[selectedSubtitle]
+                     const params = new URLSearchParams({
+                       serverUrl: activeSource.serverUrl,
+                       username: activeSource.username,
+                       password: activeSource.password,
+                       ext: currentContainerExtension || 'mkv',
+                     })
+                     const src = `/subtitles/${currentSubtitleType}/${currentSubtitleStreamId}/${selectedSubtitle}.vtt?${params}`
+                     return (
+                       <track
+                         key={`sub-${currentSubtitleType}-${currentSubtitleStreamId}-${selectedSubtitle}`}
+                         kind="subtitles"
+                         src={src}
+                         srcLang={subTrack?.language || 'und'}
+                         label={subTrack?.title || subTrack?.language?.toUpperCase() || 'Sub'}
+                         default
+                       />
+                     )
+                   })()}
+                </video>
                 {isChannelError && (
                   <div
                     className="absolute inset-0 z-20 flex flex-col items-center justify-center"
