@@ -2,13 +2,17 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   MediaPlayer,
-  MediaOutlet,
-  MediaCommunitySkin,
+  MediaProvider,
+  Track,
 } from '@vidstack/react'
+import {
+  defaultLayoutIcons,
+  DefaultVideoLayout,
+} from '@vidstack/react/player/layouts/default'
 import { usePlaylistStore } from '../stores/playlistStore'
 
-import 'vidstack/styles/base.css'
-import 'vidstack/styles/community-skin/video.css'
+import '@vidstack/react/player/styles/default/theme.css'
+import '@vidstack/react/player/styles/default/layouts/video.css'
 
 type SubtitleTrack = {
   src: string
@@ -121,19 +125,19 @@ export default function VidstackTest() {
           playsInline
           className="w-full aspect-video bg-black"
         >
-          <MediaOutlet>
+          <MediaProvider>
             {tracks.map((track) => (
-              <track
-                key={track.index}
+              <Track
+                key={String(track.index)}
                 src={track.src}
                 kind="subtitles"
                 label={track.label}
-                srcLang={track.lang}
+                lang={track.lang}
                 default={track.index === tracks[0]?.index}
               />
             ))}
-          </MediaOutlet>
-          <MediaCommunitySkin />
+          </MediaProvider>
+          <DefaultVideoLayout icons={defaultLayoutIcons} />
         </MediaPlayer>
 
         {audioInfo && (

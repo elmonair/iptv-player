@@ -1,8 +1,18 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, useMemo } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Settings } from 'lucide-react'
+import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward } from 'lucide-react'
 import mpegts from 'mpegts.js'
 import Hls from 'hls.js'
+import {
+  MediaPlayer,
+  MediaProvider,
+  Track,
+  type MediaPlayerInstance,
+} from '@vidstack/react'
+import {
+  defaultLayoutIcons,
+  DefaultVideoLayout,
+} from '@vidstack/react/player/layouts/default'
 import { db } from '../lib/db'
 import { usePlaylistStore } from '../stores/playlistStore'
 import { useBrowseStore } from '../stores/browseStore'
@@ -13,6 +23,8 @@ import { getEpgForChannel } from '../lib/epgParser'
 import type { ChannelRecord, MovieRecord } from '../lib/db'
 import type { EpgProgram } from '../lib/epgParser'
 import { getProxiedImageUrl } from '../lib/imageProxy'
+import '@vidstack/react/player/styles/default/theme.css'
+import '@vidstack/react/player/styles/default/layouts/video.css'
 
 const formatTime = (secs: number): string => {
   if (!secs || !Number.isFinite(secs)) return '0:00'
@@ -132,6 +144,7 @@ export default function Watch() {
   const navigate = useNavigate()
   const location = useLocation()
   const videoRef = useRef<HTMLVideoElement>(null)
+  const vidstackRef = useRef<MediaPlayerInstance>(null)
   const videoContainerRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<ReturnType<typeof mpegts.createPlayer> | null>(null)
   const hlsRef = useRef<Hls | null>(null)
@@ -191,12 +204,31 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const [bufferedPercent, setBufferedPercent] = useState(0)
   const [isBuffering, setIsBuffering] = useState(false)
   const [seekOffset, setSeekOffset] = useState(0)
-  const [showSettings, setShowSettings] = useState(false)
-  const [audioTracks, setAudioTracks] = useState<Array<{ index: number; codec: string; language: string; title: string | null; channels: number | null; channel_layout: string | null; is_default: boolean; browser_compatible: boolean }>>([])
+  const [, setAudioTracks] = useState<Array<{ index: number; codec: string; language: string; title: string | null; channels: number | null; channel_layout: string | null; is_default: boolean; browser_compatible: boolean }>>([])
   const [subtitleTracks, setSubtitleTracks] = useState<Array<{ index: number; codec: string; language: string; title: string | null; forced: boolean; is_default: boolean; is_bitmap: boolean; extractable: boolean }>>([])
-  const [selectedAudio, setSelectedAudio] = useState<number | null>(null)
-  const [selectedSubtitle, setSelectedSubtitle] = useState<number | null>(null)
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const vidstackSubtitleTracks = useMemo(() => {
+    if (!subtitleTracks.length || !activeSource || activeSource.type !== 'xtream') return []
+    const { id: numericId, type: sType } = extractStreamId(routeType, routeId, episodeId)
+    if (!numericId || !sType) return []
+    return subtitleTracks
+      .filter((t) => t.extractable && !t.is_bitmap)
+      .map((t) => {
+        const p = new URLSearchParams({
+          serverUrl: activeSource.serverUrl,
+          username: activeSource.username,
+          password: activeSource.password,
+          ext: currentContainerExtension || 'mkv',
+        })
+        return {
+          src: `/subtitles/${sType}/${numericId}/${t.index}.vtt?${p}`,
+          label: t.title || (t.language || 'und').toUpperCase(),
+          language: t.language || 'und',
+          kind: 'subtitles' as const,
+        }
+      })
+  }, [subtitleTracks, activeSource, routeType, routeId, episodeId, currentContainerExtension])
 
   const setLastChannelId = usePlaylistStore((state) => state.setLastChannelId)
   const getActiveSource = usePlaylistStore((state) => state.getActiveSource)
@@ -295,16 +327,25 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     if (!activeSource) return
     if (itemType === 'channel') return
 
+    const getCurrentPlaybackTime = () => {
+      if (currentType !== 'channel' && vidstackRef.current) {
+        return (vidstackRef.current.currentTime || 0) + (seekOffset || 0)
+      }
+      if (videoRef.current) {
+        return (videoRef.current.currentTime || 0) + (seekOffset || 0)
+      }
+      return 0
+    }
+
     const saveProgress = () => {
-      if (!videoRef.current || !activeSource) return
-      const rawTime = videoRef.current.currentTime
-      const ct = rawTime + seekOffset
-      const duration = realDuration || videoRef.current.duration
+      if (!activeSource) return
+      const ct = getCurrentPlaybackTime()
+      const duration = realDuration || (currentType !== 'channel' ? (vidstackRef.current?.duration || 0) : (videoRef.current?.duration || 0))
       updateWatchProgress(itemType, itemId, activeSource.id, ct, duration)
     }
 
     progressIntervalRef.current = setInterval(saveProgress, 10000)
-  }, [activeSource, updateWatchProgress, seekOffset, realDuration])
+  }, [activeSource, updateWatchProgress, seekOffset, realDuration, currentType])
 
   const handleLoadedMetadata = useCallback(async (savedProgress?: { position: number } | null) => {
     if (hasResumedRef.current) return
@@ -343,11 +384,14 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   }, [])
 
   const handlePlayClick = async () => {
-    if (!videoRef.current) {
-      return
-    }
     try {
-      await videoRef.current.play()
+      if (currentType !== 'channel' && vidstackRef.current) {
+        await vidstackRef.current.play()
+      } else if (videoRef.current) {
+        await videoRef.current.play()
+      } else {
+        return
+      }
     } catch (err) {
       console.error('[Watch] User-initiated play failed:', err)
       setStatus('error')
@@ -481,7 +525,6 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   }, [])
 
   const playEpisode = useCallback(async (episodeInfo: EpisodeInfo, overrideSource?: Awaited<ReturnType<typeof getActiveSource>> | null) => {
-    if (!videoRef.current) return
 
     const source = overrideSource || activeSource
     if (!source || source.type !== 'xtream') return
@@ -541,10 +584,6 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setCurrentStreamUrl(streamUrl)
 
     const videoEl = videoRef.current
-    if (!videoEl) {
-      console.warn('[Watch] videoRef not ready after await, skipping playEpisode')
-      return
-    }
 
     const episodeId = String(episodeInfo.streamId)
     let savedProgress: { position: number } | null = null
@@ -558,11 +597,6 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       console.error('[Watch] Failed to query episode watch history:', err)
     }
 
-    if (!videoRef.current) {
-      console.warn('[Watch] videoRef not ready after Dexie await, skipping episode setup')
-      return
-    }
-
     if (savedProgress && savedProgress.position > 30) {
       const resumeUrl = buildTranscodeUrl(source, String(episodeInfo.streamId), episodeInfo.containerExtension || 'mkv', 'series', savedProgress.position)
       console.log('[RESUME] Starting episode directly with transcode URL, seek:', savedProgress.position, 'URL:', resumeUrl)
@@ -570,59 +604,67 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       setCurrentContainerExtension(episodeInfo.containerExtension || 'mkv')
       setCurrentStreamUrl(resumeUrl)
       currentStreamUrlRef.current = resumeUrl
-      setupVideoSource(videoEl, resumeUrl)
-      videoEl.onloadedmetadata = () => {
-        hasResumedRef.current = true
+      if (videoEl) {
+        setupVideoSource(videoEl, resumeUrl)
+        videoEl.onloadedmetadata = () => {
+          hasResumedRef.current = true
+        }
       }
     } else {
-      setupVideoSource(videoEl, streamUrl)
-      videoEl.onloadedmetadata = () => {
-        handleLoadedMetadata(savedProgress)
+      if (videoEl) {
+        setupVideoSource(videoEl, streamUrl)
+        videoEl.onloadedmetadata = () => {
+          handleLoadedMetadata(savedProgress)
+        }
       }
     }
-    videoEl.oncanplay = () => {
-      if (videoEl.videoWidth && videoEl.videoHeight) {
-        setVideoInfo({
-          width: videoEl.videoWidth,
-          height: videoEl.videoHeight,
-          fps: 0,
-        })
+    if (videoEl) {
+      videoEl.oncanplay = () => {
+        if (videoEl.videoWidth && videoEl.videoHeight) {
+          setVideoInfo({
+            width: videoEl.videoWidth,
+            height: videoEl.videoHeight,
+            fps: 0,
+          })
+        }
       }
-    }
-    videoEl.onplaying = () => {
-      setStatus('playing')
-      startProgressTracking('episode', episodeId)
-    }
-    videoEl.onerror = () => {
-      if (!currentStreamUrlRef.current) {
-        return
+      videoEl.onplaying = () => {
+        setStatus('playing')
+        startProgressTracking('episode', episodeId)
       }
-      console.error('[Watch] Episode video error:', videoEl.error)
-      setStatus('error')
-      const errCode = videoEl.error?.code ?? 0
-      if (errCode === 4) {
-        setErrorMsg('Video format not supported by browser. Copy URL for VLC.')
-      } else {
-        setErrorMsg('Unable to play episode. Copy URL for VLC.')
-      }
-    }
-    videoEl.onstalled = null
-
-    try {
-      await videoEl.play()
-      setStatus('playing')
-    } catch (err) {
-      if (err instanceof Error && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
-        setStatus('ready-click-to-play')
-      } else {
+      videoEl.onerror = () => {
+        if (!currentStreamUrlRef.current) {
+          return
+        }
+        console.error('[Watch] Episode video error:', videoEl.error)
         setStatus('error')
-        setErrorMsg(err instanceof Error ? err.message : String(err))
+        const errCode = videoEl.error?.code ?? 0
+        if (errCode === 4) {
+          setErrorMsg('Video format not supported by browser. Copy URL for VLC.')
+        } else {
+          setErrorMsg('Unable to play episode. Copy URL for VLC.')
+        }
       }
+      videoEl.onstalled = null
+
+      try {
+        await videoEl.play()
+        setStatus('playing')
+      } catch (err) {
+        if (err instanceof Error && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
+          setStatus('ready-click-to-play')
+        } else {
+          setStatus('error')
+          setErrorMsg(err instanceof Error ? err.message : String(err))
+        }
+      }
+    } else {
+      setStatus('ready-click-to-play')
     }
   }, [destroyPlayer, getWatchHistory, startProgressTracking, handleLoadedMetadata])
 
   const zapTo = useCallback(async (targetItemId: string) => {
-    if (!targetItemId || !videoRef.current) return
+    if (!targetItemId) return
 
     const source = usePlaylistStore.getState().getActiveSource()
     console.log('[zapTo] called with:', targetItemId, '| source from store:', source?.type, source?.name, '| id:', source?.id)
@@ -695,11 +737,6 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       setCategoryName('Unknown')
     }
 
-    if (!videoRef.current) {
-      console.warn('[Watch] videoRef not ready after await, aborting zapTo')
-      return
-    }
-
     const streamUrl = buildStreamUrl(source, item)
 
     if (!streamUrl) {
@@ -714,12 +751,14 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     setCurrentStreamUrl(streamUrl)
 
     const videoEl = videoRef.current
-    if (!videoEl) {
-      console.warn('[Watch] videoRef not ready after await, skipping zapTo')
-      return
-    }
 
     if (item.type === 'channel') {
+      if (!videoEl) {
+        console.error('[Watch] Channel video element missing')
+        setStatus('error')
+        setErrorMsg('Video element not ready')
+        return
+      }
       if (mpegts.isSupported()) {
         const player = mpegts.createPlayer(
           {
@@ -893,7 +932,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       } else {
         videoEl.src = streamUrl
       }
-    } else {
+    } else if (videoEl) {
       // Movie — use HLS.js for m3u8 streams, native for others
       const movieId = (item.data as MovieRecord).id
 
@@ -1003,6 +1042,35 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
           setErrorMsg(err instanceof Error ? err.message : String(err))
         }
       }
+    } else {
+      // VOD path when using Vidstack internal video element
+      const movieId = (item.data as MovieRecord).id
+      let savedProgress: { position: number } | null = null
+      try {
+        const dbRecord = await db.watchHistory.where('id').equals(`movie:${movieId}`).first()
+        if (dbRecord && dbRecord.position > 0) {
+          savedProgress = { position: dbRecord.position }
+        }
+      } catch (err) {
+        console.error('[Watch] Failed to query watch history:', err)
+      }
+
+      let vodUrl = streamUrl
+      if (savedProgress && savedProgress.position > 30) {
+        const currentSource = usePlaylistStore.getState().getActiveSource()
+        if (currentSource && currentSource.type === 'xtream') {
+          const { id: streamId, type: transcodeType } = extractStreamId(routeType, routeId, episodeId)
+          if (streamId && transcodeType) {
+            const ext = (item.data as MovieRecord).containerExtension || 'mp4'
+            vodUrl = buildTranscodeUrl(currentSource, streamId, ext, transcodeType, savedProgress.position)
+            setSeekOffset(savedProgress.position)
+            setCurrentContainerExtension(ext)
+          }
+        }
+      }
+      currentStreamUrlRef.current = vodUrl
+      setCurrentStreamUrl(vodUrl)
+      setStatus('ready-click-to-play')
     }
   }, [destroyPlayer, getWatchHistory, startProgressTracking, handleLoadedMetadata, setLastChannelId, clearChannelErrorTimeout, clearAutoAdvanceTimer])
 
@@ -1192,23 +1260,6 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       stopProgressTracking()
     }
   }, [clearAutoAdvanceTimer, clearChannelErrorTimeout, stopProgressTracking])
-
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-    const apply = () => {
-      const tracks = video.textTracks
-      for (let i = 0; i < tracks.length; i++) {
-        tracks[i].mode = 'disabled'
-      }
-      if (selectedSubtitle !== null && tracks.length > 0) {
-        tracks[tracks.length - 1].mode = 'showing'
-      }
-    }
-    apply()
-    video.textTracks.addEventListener('addtrack', apply)
-    return () => video.textTracks.removeEventListener('addtrack', apply)
-  }, [selectedSubtitle])
 
   // Track detection removed - audio/subtitle UI no longer needed
 
@@ -1416,8 +1467,6 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         console.log('[Probe] Tracks:', data)
         setAudioTracks(data.audio_tracks || [])
         setSubtitleTracks(data.subtitle_tracks || [])
-        const defaultAudio = data.audio_tracks?.find((t: { default: boolean }) => t.default) || data.audio_tracks?.[0]
-        if (defaultAudio) setSelectedAudio(defaultAudio.index)
       } catch (err) {
         console.error('[Probe] Failed:', err)
       }
@@ -1425,47 +1474,16 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     probeTracks()
   }, [currentType, activeSource, routeType, routeId, episodeId, currentContainerExtension])
 
-  const reloadWithSettings = useCallback((overrides: { audioTrack?: number; subtitleTrack?: string } = {}) => {
-    if (!videoRef.current || !activeSource || activeSource.type !== 'xtream') return
-    const { id: streamId, type: transcodeType } = extractStreamId(routeType, routeId, episodeId)
-    if (!streamId || !transcodeType) return
-
-    const audio = overrides.audioTrack ?? selectedAudio ?? 0
-    const sub = overrides.subtitleTrack ?? selectedSubtitle
-    const currentPos = (videoRef.current.currentTime || 0) + (seekOffset || 0)
-
-    const params = new URLSearchParams({
-      serverUrl: activeSource.serverUrl,
-      username: activeSource.username,
-      password: activeSource.password,
-      ext: currentContainerExtension,
-      seek: String(Math.floor(currentPos)),
-    })
-    if (audio !== null) params.set('audioTrack', String(audio))
-    if (sub !== 'none') params.set('subtitleTrack', String(sub))
-
-    const newUrl = `/transcode/${transcodeType}/${streamId}?${params}`
-    console.log('[TRACKS] Reloading with:', newUrl.replace(/password=[^&]+/, 'password=[HIDDEN]'))
-
-    setSeekOffset(currentPos)
-    setCurrentStreamUrl(newUrl)
-    seekInProgressRef.current = true
-    setTimeout(() => { seekInProgressRef.current = false }, 3000)
-    videoRef.current.src = newUrl
-    videoRef.current.load()
-    videoRef.current.play().catch(() => {})
-  }, [activeSource, routeType, routeId, episodeId, currentContainerExtension, selectedAudio, selectedSubtitle, seekOffset])
-
   // Prompt 2: Controls auto-hide for VOD
   const resetControlsTimer = useCallback(() => {
     setShowControls(true)
     if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current)
     controlsTimeoutRef.current = setTimeout(() => {
-      if (videoRef.current && !videoRef.current.paused && !showSettings) {
+      if (isPlaying) {
         setShowControls(false)
       }
     }, 3000)
-  }, [showSettings])
+  }, [isPlaying])
 
   useEffect(() => {
     return () => {
@@ -1474,11 +1492,11 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   }, [])
 
   useEffect(() => {
-    if (currentType === 'channel' || !videoRef.current) return
+    if (currentType === 'channel') return
     return () => {
-      const rawTime = videoRef.current?.currentTime || 0
+      const rawTime = vidstackRef.current?.currentTime || videoRef.current?.currentTime || 0
       const ct = rawTime + seekOffset
-      const dur = realDuration || videoRef.current?.duration || 0
+      const dur = realDuration || vidstackRef.current?.duration || videoRef.current?.duration || 0
       const itemId = currentType === 'movie' ? routeId : episodeId
       if (ct > 5 && dur > 0) {
         console.log('[Watch] Saving progress on unmount:', ct, '/', dur, 'seekOffset:', seekOffset)
@@ -1590,74 +1608,88 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                 className="relative w-full h-full flex items-center justify-center bg-black rounded border-slate-700"
                 style={isFullscreen ? { width: '100vw', height: '100vh', borderRadius: 0 } : undefined}
                 onMouseMove={currentType !== 'channel' ? resetControlsTimer : undefined}
-                 onMouseLeave={currentType !== 'channel' ? () => { if (videoRef.current && !videoRef.current.paused && !showSettings) setShowControls(false) } : undefined}
+                onMouseLeave={currentType !== 'channel' ? () => { if (isPlaying) setShowControls(false) } : undefined}
               >
-                <video
-                  ref={videoRef}
-                  playsInline
-                  className="w-full h-full object-contain"
-                  onTimeUpdate={(e) => {
-                    const videoEl = e.currentTarget
-                    const ct = videoEl.currentTime + seekOffset
-                    const displayDur = realDuration || videoEl.duration || 0
-                    setCurrentTime(ct)
-                    const prog = displayDur > 0 ? (ct / displayDur) * 100 : 0
-                    const bar = document.getElementById('watch-progress-bar') as HTMLDivElement | null
-                    if (bar) bar.style.width = `${prog}%`
-                    if (videoEl.buffered.length > 0) {
-                      const buffered = videoEl.buffered.end(videoEl.buffered.length - 1)
-                      const bufPct = displayDur > 0 ? (buffered / displayDur) * 100 : 0
-                      setBufferedPercent(bufPct)
-                      const bufBar = document.getElementById('watch-buffered-bar') as HTMLDivElement | null
-                      if (bufBar) bufBar.style.width = `${bufPct}%`
-                    }
-                  }}
-                  onWaiting={() => setIsBuffering(true)}
-                  onPlaying={() => { setIsBuffering(false); setIsPlaying(true) }}
-                  onPause={() => setIsPlaying(false)}
-                  onSeeking={() => console.log('[SEEK] seeking event, readyState:', videoRef.current?.readyState)}
-                  onSeeked={() => console.log('[SEEK] seeked event, currentTime:', videoRef.current?.currentTime)}
-                  onLoadedMetadata={(e) => {
-                    const dd = realDuration || e.currentTarget.duration || 0
-                    const durEl = document.getElementById('watch-duration')
-                    if (durEl) durEl.textContent = formatTime(dd)
-                  }}
-                  onClick={() => {
-                    if (videoRef.current) {
-                      if (videoRef.current.paused) {
-                        videoRef.current.play().catch(() => {})
-                      } else {
-                        videoRef.current.pause()
+                {currentType === 'channel' ? (
+                  <video
+                    ref={videoRef}
+                    playsInline
+                    className="w-full h-full object-contain"
+                    onTimeUpdate={(e) => {
+                      const videoEl = e.currentTarget
+                      const ct = videoEl.currentTime + seekOffset
+                      const displayDur = realDuration || videoEl.duration || 0
+                      setCurrentTime(ct)
+                      const prog = displayDur > 0 ? (ct / displayDur) * 100 : 0
+                      const bar = document.getElementById('watch-progress-bar') as HTMLDivElement | null
+                      if (bar) bar.style.width = `${prog}%`
+                      if (videoEl.buffered.length > 0) {
+                        const buffered = videoEl.buffered.end(videoEl.buffered.length - 1)
+                        const bufPct = displayDur > 0 ? (buffered / displayDur) * 100 : 0
+                        setBufferedPercent(bufPct)
+                        const bufBar = document.getElementById('watch-buffered-bar') as HTMLDivElement | null
+                        if (bufBar) bufBar.style.width = `${bufPct}%`
                       }
-                    }
-                  }}
-                >
-                  {selectedSubtitle !== null &&
-                   subtitleTracks[selectedSubtitle] !== undefined &&
-                   subtitleTracks[selectedSubtitle].extractable &&
-                   !subtitleTracks[selectedSubtitle].is_bitmap &&
-                   activeSource?.type === 'xtream' && (() => {
-                    const t = subtitleTracks[selectedSubtitle]
-                    const { id: numericId, type: sType } = extractStreamId(routeType, routeId, episodeId)
-                    if (!numericId || !sType) return null
-                    const p = new URLSearchParams({
-                      serverUrl: activeSource.serverUrl,
-                      username: activeSource.username,
-                      password: activeSource.password,
-                      ext: currentContainerExtension || 'mkv',
-                    })
-                    return (
-                      <track
-                        key={'sub-' + sType + '-' + numericId + '-' + selectedSubtitle}
-                        kind="subtitles"
-                        src={'/subtitles/' + sType + '/' + numericId + '/' + selectedSubtitle + '.vtt?' + p}
-                        srcLang={t?.language || 'und'}
-                        label={t?.title || t?.language?.toUpperCase() || 'Sub'}
-                        default
-                      />
-                    )
-                  })()}
-                </video>
+                    }}
+                    onWaiting={() => setIsBuffering(true)}
+                    onPlaying={() => { setIsBuffering(false); setIsPlaying(true) }}
+                    onPause={() => setIsPlaying(false)}
+                    onSeeking={() => console.log('[SEEK] seeking event, readyState:', videoRef.current?.readyState)}
+                    onSeeked={() => console.log('[SEEK] seeked event, currentTime:', videoRef.current?.currentTime)}
+                    onLoadedMetadata={(e) => {
+                      const dd = realDuration || e.currentTarget.duration || 0
+                      const durEl = document.getElementById('watch-duration')
+                      if (durEl) durEl.textContent = formatTime(dd)
+                    }}
+                    onClick={() => {
+                      if (videoRef.current) {
+                        if (videoRef.current.paused) {
+                          videoRef.current.play().catch(() => {})
+                        } else {
+                          videoRef.current.pause()
+                        }
+                      }
+                    }}
+                  />
+                ) : currentStreamUrl ? (
+                  <MediaPlayer
+                    ref={vidstackRef}
+                    title={itemName || ''}
+                    src={currentStreamUrl}
+                    crossOrigin
+                    playsInline
+                    autoPlay
+                    className="w-full h-full"
+                    onTimeUpdate={(e: any) => {
+                      const ct = (e?.detail?.currentTime ?? e?.currentTime ?? 0) + (seekOffset || 0)
+                      setCurrentTime(ct)
+                    }}
+                    onEnded={() => {
+                      console.log('[Vidstack] Playback ended')
+                    }}
+                    onPlay={() => {
+                      setStatus('playing')
+                      setIsPlaying(true)
+                    }}
+                    onPause={() => {
+                      setIsPlaying(false)
+                    }}
+                  >
+                    <MediaProvider>
+                      {vidstackSubtitleTracks.map((track, i) => (
+                        <Track
+                          key={track.src}
+                          src={track.src}
+                          kind={track.kind}
+                          label={track.label}
+                          lang={track.language}
+                          default={i === 0}
+                        />
+                      ))}
+                    </MediaProvider>
+                    <DefaultVideoLayout icons={defaultLayoutIcons} />
+                  </MediaPlayer>
+                ) : null}
 
                 {/* Buffering spinner */}
                 {isBuffering && (
@@ -1666,8 +1698,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                   </div>
                 )}
 
-                {/* VOD CONTROLS OVERLAY - only for movies/episodes */}
-                {currentType !== 'channel' && (
+                {/* Custom controls overlay - only for channels */}
+                {currentType === 'channel' && (
                   <>
                     {/* Center play/pause button - visible when paused or controls shown */}
                     {(!isPlaying || showControls) && (
@@ -1774,7 +1806,7 @@ setSeekOffset(target)
                             />
                           </div>
 <span className="text-xs text-white/60 w-10 select-none">
-                            {formatTime(realDuration || videoRef.current?.duration || 0)}
+                          {formatTime(realDuration || (currentType !== 'channel' ? (vidstackRef.current?.duration || 0) : (videoRef.current?.duration || 0)))}
                           </span>
                         </div>
 
@@ -1869,96 +1901,6 @@ setSeekOffset(target)
                         </div>
                       </div>
 
-                    {(audioTracks.length > 0 || subtitleTracks.length > 0) && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          e.preventDefault()
-                          setShowSettings((prev) => !prev)
-                        }}
-                        className="fixed bottom-6 right-20 z-40 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white transition-colors"
-                        aria-label="Audio & subtitle settings"
-                      >
-                        <Settings size={20} />
-                      </button>
-                    )}
-
-                      {showSettings && (
-                        <div className="fixed bottom-24 right-4 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg p-4 w-72 max-w-[90vw] z-50 shadow-xl">
-                          {audioTracks.length > 0 && (
-                            <div className="mb-4">
-                              <p className="text-xs uppercase text-slate-400 mb-2 tracking-wide">Audio</p>
-                              {audioTracks.map((track) => (
-                                <button
-                                  key={track.index}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setSelectedAudio(track.index)
-                                    reloadWithSettings({ audioTrack: track.index })
-                                  }}
-                                  className={`w-full text-left px-3 py-2 rounded text-sm transition-colors ${
-                                    selectedAudio === track.index
-                                      ? 'bg-indigo-600 text-white'
-                                      : 'text-slate-300 hover:bg-slate-800'
-                                  }`}
-                                >
-                                  <span className="text-white">{track.language?.toUpperCase()}</span>
-                                  <span className="text-slate-400 ml-2">{track.title}</span>
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                          {subtitleTracks.length > 0 && (
-                            <div>
-                              <p className="text-xs uppercase text-slate-400 mb-2 tracking-wide">Subtitles</p>
-                               <button
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    setSelectedSubtitle(null)
-                                    setShowSettings(false)
-                                  }}
-                                 className={`w-full text-left px-3 py-2 rounded text-sm transition-colors mb-1 ${
-                                   selectedSubtitle === null
-                                     ? 'bg-indigo-600 text-white'
-                                     : 'text-slate-300 hover:bg-slate-800'
-                                 }`}
-                               >
-                                 Off
-                               </button>
-                              {subtitleTracks.map((track) => (
-                                <button
-                                  key={track.index}
-                                  disabled={track.is_bitmap}
-                                   onClick={(e) => {
-                                     e.stopPropagation()
-                                     if (!track.is_bitmap) {
-                                       setSelectedSubtitle(track.index)
-                                       setShowSettings(false)
-                                     }
-                                   }}
-                                  className={`w-full text-left px-3 py-2 rounded text-sm transition-colors mb-1 ${
-                                    track.is_bitmap
-                                      ? 'text-slate-600 cursor-not-allowed'
-                                      : selectedSubtitle === track.index
-                                      ? 'bg-indigo-600 text-white'
-                                      : 'text-slate-300 hover:bg-slate-800'
-                                  }`}
-                                >
-                                  <span className={track.is_bitmap ? 'text-slate-600' : 'text-white'}>
-                                    {track.language?.toUpperCase()}
-                                  </span>
-                                  {track.title && <span className="text-slate-400 ml-2">{track.title}</span>}
-                                  {track.is_bitmap && (
-                                    <span className="text-slate-600 ml-1 text-xs block">
-                                      (requires burn-in, not supported)
-                                    </span>
-                                  )}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
                     </div>
                   </>
                 )}
