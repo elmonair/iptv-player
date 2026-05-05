@@ -12,15 +12,18 @@
   "dependencies": {
     "@tanstack/react-query": "^5.99.2",
     "@tanstack/react-virtual": "^3.13.24",
+    "@vidstack/react": "^0.6.15",
     "dexie": "^4.4.2",
     "dexie-react-hooks": "^4.4.0",
     "express": "^5.2.1",
     "hls.js": "^1.6.16",
     "lucide-react": "^1.8.0",
+    "maverick.js": "^0.37.0",
     "mpegts.js": "^1.8.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-router-dom": "^7.14.1",
+    "vidstack": "^0.6.15",
     "zustand": "^5.0.12"
   },
   "devDependencies": {

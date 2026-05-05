@@ -14,6 +14,7 @@ import WatchLegacyRedirect from './pages/WatchLegacyRedirect'
 import SearchPage from './pages/SearchPage'
 import EpgPage from './pages/EpgPage'
 import SettingsPage from './pages/SettingsPage'
+import VidstackTest from './pages/VidstackTest'
 import ErrorBoundary from './components/ErrorBoundary'
 import { usePlaylistStore } from './stores/playlistStore'
 import { useFavoritesStore } from './stores/favoritesStore'
@@ -122,6 +123,7 @@ function AppContent() {
       <Route path="/settings" element={<SettingsPage />} />
       <Route path="/epg" element={<EpgPage />} />
       <Route path="/test-player" element={<TestPlayer />} />
+      <Route path="/vidstack-test/:movieId" element={<VidstackTest />} />
     </Routes>
   )
 }
