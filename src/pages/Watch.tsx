@@ -1638,9 +1638,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                    !subtitleTracks[selectedSubtitle].is_bitmap &&
                    activeSource?.type === 'xtream' && (() => {
                     const t = subtitleTracks[selectedSubtitle]
-                    const sType = currentType === 'episode' ? 'series' : currentType
-                    const sId = currentType === 'episode' ? episodeId : currentItemId
-                    if (!sId) return null
+                    const { id: numericId, type: sType } = extractStreamId(routeType, routeId, episodeId)
+                    if (!numericId || !sType) return null
                     const p = new URLSearchParams({
                       serverUrl: activeSource.serverUrl,
                       username: activeSource.username,
@@ -1649,9 +1648,9 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                     })
                     return (
                       <track
-                        key={'sub-' + sType + '-' + sId + '-' + selectedSubtitle}
+                        key={'sub-' + sType + '-' + numericId + '-' + selectedSubtitle}
                         kind="subtitles"
-                        src={'/subtitles/' + sType + '/' + sId + '/' + selectedSubtitle + '.vtt?' + p}
+                        src={'/subtitles/' + sType + '/' + numericId + '/' + selectedSubtitle + '.vtt?' + p}
                         srcLang={t?.language || 'und'}
                         label={t?.title || t?.language?.toUpperCase() || 'Sub'}
                         default
@@ -1851,28 +1850,10 @@ setSeekOffset(target)
                             />
                           </div>
                           <div className="flex-1" />
-                           {(audioTracks.length > 0 || subtitleTracks.length > 0) && (
-                             <button
-                               onClick={(e) => {
-                                 e.stopPropagation()
-                                 e.preventDefault()
-                                 console.log('[GEAR] clicked, showSettings:', showSettings)
-                                 const newSettings = !showSettings
-                                 setShowSettings(newSettings)
-                                 if (!newSettings) {
-                                   resetControlsTimer()
-                                 }
-                               }}
-                               className="text-white/70 hover:text-white p-1"
-                               aria-label="Audio & subtitle settings"
-                             >
-                               <Settings className="w-5 h-5" />
-                             </button>
-                           )}
-                          <button
-                             onClick={(e) => {
-                               e.stopPropagation()
-                               const container = videoContainerRef.current
+                           <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                const container = videoContainerRef.current
                                if (!container) return
                                if (!document.fullscreenElement) {
                                  container.requestFullscreen?.().catch(() => {})
@@ -1888,8 +1869,22 @@ setSeekOffset(target)
                         </div>
                       </div>
 
+                    {(audioTracks.length > 0 || subtitleTracks.length > 0) && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          e.preventDefault()
+                          setShowSettings((prev) => !prev)
+                        }}
+                        className="fixed bottom-6 right-20 z-40 p-2 rounded-full bg-black/60 hover:bg-black/80 text-white transition-colors"
+                        aria-label="Audio & subtitle settings"
+                      >
+                        <Settings size={20} />
+                      </button>
+                    )}
+
                       {showSettings && (
-                        <div className="absolute bottom-full right-4 mb-2 bg-slate-900 border border-slate-700 rounded-lg p-4 min-w-[260px] z-50 shadow-xl">
+                        <div className="fixed bottom-24 right-4 bg-slate-900/95 backdrop-blur border border-slate-700 rounded-lg p-4 w-72 max-w-[90vw] z-50 shadow-xl">
                           {audioTracks.length > 0 && (
                             <div className="mb-4">
                               <p className="text-xs uppercase text-slate-400 mb-2 tracking-wide">Audio</p>
@@ -1917,10 +1912,11 @@ setSeekOffset(target)
                             <div>
                               <p className="text-xs uppercase text-slate-400 mb-2 tracking-wide">Subtitles</p>
                                <button
-                                 onClick={(e) => {
-                                   e.stopPropagation()
-                                   setSelectedSubtitle(null)
-                                 }}
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    setSelectedSubtitle(null)
+                                    setShowSettings(false)
+                                  }}
                                  className={`w-full text-left px-3 py-2 rounded text-sm transition-colors mb-1 ${
                                    selectedSubtitle === null
                                      ? 'bg-indigo-600 text-white'
@@ -1933,12 +1929,13 @@ setSeekOffset(target)
                                 <button
                                   key={track.index}
                                   disabled={track.is_bitmap}
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    if (!track.is_bitmap) {
-                                      setSelectedSubtitle(track.index)
-                                    }
-                                  }}
+                                   onClick={(e) => {
+                                     e.stopPropagation()
+                                     if (!track.is_bitmap) {
+                                       setSelectedSubtitle(track.index)
+                                       setShowSettings(false)
+                                     }
+                                   }}
                                   className={`w-full text-left px-3 py-2 rounded text-sm transition-colors mb-1 ${
                                     track.is_bitmap
                                       ? 'text-slate-600 cursor-not-allowed'
