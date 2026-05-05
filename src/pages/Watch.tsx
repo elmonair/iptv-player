@@ -327,20 +327,19 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     if (!activeSource) return
     if (itemType === 'channel') return
 
-    const getCurrentPlaybackTime = () => {
-      if (currentType !== 'channel' && vidstackRef.current) {
-        return (vidstackRef.current.currentTime || 0) + (seekOffset || 0)
-      }
-      if (videoRef.current) {
-        return (videoRef.current.currentTime || 0) + (seekOffset || 0)
-      }
-      return 0
-    }
-
     const saveProgress = () => {
       if (!activeSource) return
-      const ct = getCurrentPlaybackTime()
-      const duration = realDuration || (currentType !== 'channel' ? (vidstackRef.current?.duration || 0) : (videoRef.current?.duration || 0))
+      const ct = vidstackRef.current
+        ? (vidstackRef.current.currentTime || 0) + (seekOffset || 0)
+        : videoRef.current
+          ? (videoRef.current.currentTime || 0) + (seekOffset || 0)
+          : 0
+      const fallbackDuration = vidstackRef.current
+        ? (vidstackRef.current.duration || 0)
+        : videoRef.current
+          ? (videoRef.current.duration || 0)
+          : 0
+      const duration = realDuration || fallbackDuration
       updateWatchProgress(itemType, itemId, activeSource.id, ct, duration)
     }
 
@@ -366,7 +365,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
           setCurrentStreamUrl(transcodeUrl)
           videoEl.src = transcodeUrl
           videoEl.load()
-          videoEl.play().catch(() => {})
+          setStatus('ready-click-to-play')
           hasResumedRef.current = true
           return
         }
@@ -384,10 +383,9 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   }, [])
 
   const handlePlayClick = async () => {
+    if (currentType !== 'channel') return
     try {
-      if (currentType !== 'channel' && vidstackRef.current) {
-        await vidstackRef.current.play()
-      } else if (videoRef.current) {
+      if (videoRef.current) {
         await videoRef.current.play()
       } else {
         return
@@ -583,8 +581,6 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
     currentStreamUrlRef.current = streamUrl
     setCurrentStreamUrl(streamUrl)
 
-    const videoEl = videoRef.current
-
     const episodeId = String(episodeInfo.streamId)
     let savedProgress: { position: number } | null = null
     try {
@@ -604,63 +600,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
       setCurrentContainerExtension(episodeInfo.containerExtension || 'mkv')
       setCurrentStreamUrl(resumeUrl)
       currentStreamUrlRef.current = resumeUrl
-      if (videoEl) {
-        setupVideoSource(videoEl, resumeUrl)
-        videoEl.onloadedmetadata = () => {
-          hasResumedRef.current = true
-        }
-      }
     } else {
-      if (videoEl) {
-        setupVideoSource(videoEl, streamUrl)
-        videoEl.onloadedmetadata = () => {
-          handleLoadedMetadata(savedProgress)
-        }
-      }
+      hasResumedRef.current = false
     }
-    if (videoEl) {
-      videoEl.oncanplay = () => {
-        if (videoEl.videoWidth && videoEl.videoHeight) {
-          setVideoInfo({
-            width: videoEl.videoWidth,
-            height: videoEl.videoHeight,
-            fps: 0,
-          })
-        }
-      }
-      videoEl.onplaying = () => {
-        setStatus('playing')
-        startProgressTracking('episode', episodeId)
-      }
-      videoEl.onerror = () => {
-        if (!currentStreamUrlRef.current) {
-          return
-        }
-        console.error('[Watch] Episode video error:', videoEl.error)
-        setStatus('error')
-        const errCode = videoEl.error?.code ?? 0
-        if (errCode === 4) {
-          setErrorMsg('Video format not supported by browser. Copy URL for VLC.')
-        } else {
-          setErrorMsg('Unable to play episode. Copy URL for VLC.')
-        }
-      }
-      videoEl.onstalled = null
-
-      try {
-        await videoEl.play()
-        setStatus('playing')
-      } catch (err) {
-        if (err instanceof Error && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
-          setStatus('ready-click-to-play')
-        } else {
-          setStatus('error')
-          setErrorMsg(err instanceof Error ? err.message : String(err))
-        }
-      }
-    } else {
-      setStatus('ready-click-to-play')
-    }
+    setStatus('ready-click-to-play')
   }, [destroyPlayer, getWatchHistory, startProgressTracking, handleLoadedMetadata])
 
   const zapTo = useCallback(async (targetItemId: string) => {
@@ -930,10 +873,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
           }
         }
       } else {
-        videoEl.src = streamUrl
+        setupVideoSource(videoEl, streamUrl)
       }
-    } else if (videoEl) {
-      // Movie — use HLS.js for m3u8 streams, native for others
+    } else {
+      // Movie VOD path - Vidstack reads currentStreamUrl directly
       const movieId = (item.data as MovieRecord).id
 
       let savedProgress: { position: number } | null = null
@@ -947,11 +890,6 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         console.error('[Watch] Failed to query watch history:', err)
       }
 
-      if (!videoRef.current) {
-        console.warn('[Watch] videoRef not ready after movie resume await, aborting zapTo')
-        return
-      }
-
       if (savedProgress && savedProgress.position > 30) {
         const source = usePlaylistStore.getState().getActiveSource()
         if (source && source.type === 'xtream') {
@@ -963,98 +901,13 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
             setSeekOffset(savedProgress.position)
             setCurrentContainerExtension(ext)
             setCurrentStreamUrl(resumeUrl)
-            setupVideoSource(videoEl, resumeUrl)
-            videoEl.onloadedmetadata = () => {
-              hasResumedRef.current = true
-            }
-            videoEl.oncanplay = () => {
-              if (videoEl.videoWidth && videoEl.videoHeight) {
-                setVideoInfo({ width: videoEl.videoWidth, height: videoEl.videoHeight, fps: 0 })
-              }
-            }
-            videoEl.onplaying = () => {
-              setStatus('playing')
-              startProgressTracking('movie', movieId)
-            }
-            videoEl.onerror = () => {
-              if (!currentStreamUrl) return
-              console.error('[Watch] Movie video error:', videoEl.error?.code)
-              setStatus('error')
-              setErrorMsg('Unable to play movie. Copy URL for VLC.')
-            }
-            try {
-              await videoEl.play()
-              setStatus('playing')
-            } catch (err) {
-              if (err instanceof Error && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
-                setStatus('ready-click-to-play')
-              }
-            }
+            currentStreamUrlRef.current = resumeUrl
+            hasResumedRef.current = true
+            setStatus('ready-click-to-play')
             return
           }
         }
       }
-
-      setupVideoSource(videoEl, streamUrl)
-
-      videoEl.onloadedmetadata = () => {
-        handleLoadedMetadata(savedProgress)
-      }
-      videoEl.oncanplay = () => {
-        if (videoEl.videoWidth && videoEl.videoHeight) {
-          setVideoInfo({
-            width: videoEl.videoWidth,
-            height: videoEl.videoHeight,
-            fps: 0,
-          })
-        }
-      }
-      videoEl.onplaying = () => {
-        setStatus('playing')
-        startProgressTracking('movie', movieId)
-      }
-      videoEl.onerror = () => {
-        if (!currentStreamUrl) return
-        if (seekInProgressRef.current) {
-          console.log('[Watch] Skipping movie error during seek')
-          return
-        }
-        const errCode = videoEl.error?.code ?? 0
-        if (errCode === 1) return
-        console.error('[Watch] Movie video error:', errCode, videoEl.error?.message)
-        setStatus('error')
-        if (errCode === 4) {
-          setErrorMsg('Video format not supported by browser. Copy URL for VLC.')
-        } else {
-          setErrorMsg('Unable to play movie. Copy URL for VLC.')
-        }
-      }
-      videoEl.onstalled = null
-
-      try {
-        await videoEl.play()
-        setStatus('playing')
-      } catch (err) {
-        if (err instanceof Error && (err.name === 'AbortError' || err.name === 'NotAllowedError')) {
-          setStatus('ready-click-to-play')
-        } else {
-          setStatus('error')
-          setErrorMsg(err instanceof Error ? err.message : String(err))
-        }
-      }
-    } else {
-      // VOD path when using Vidstack internal video element
-      const movieId = (item.data as MovieRecord).id
-      let savedProgress: { position: number } | null = null
-      try {
-        const dbRecord = await db.watchHistory.where('id').equals(`movie:${movieId}`).first()
-        if (dbRecord && dbRecord.position > 0) {
-          savedProgress = { position: dbRecord.position }
-        }
-      } catch (err) {
-        console.error('[Watch] Failed to query watch history:', err)
-      }
-
       let vodUrl = streamUrl
       if (savedProgress && savedProgress.position > 30) {
         const currentSource = usePlaylistStore.getState().getActiveSource()
@@ -1467,6 +1320,10 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
         console.log('[Probe] Tracks:', data)
         setAudioTracks(data.audio_tracks || [])
         setSubtitleTracks(data.subtitle_tracks || [])
+        const probeDuration = Number(data.duration)
+        if (probeDuration > 0) {
+          setRealDuration((prev) => (prev > 0 ? prev : probeDuration))
+        }
       } catch (err) {
         console.error('[Probe] Failed:', err)
       }
@@ -1652,13 +1509,17 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                     }}
                   />
                 ) : currentStreamUrl ? (
-                  <MediaPlayer
+                  <>
+                    {(() => {
+                      console.log('[VIDSTACK] Subtitle tracks for player:', vidstackSubtitleTracks.length)
+                      return null
+                    })()}
+                    <MediaPlayer
                     ref={vidstackRef}
-                    title={itemName || ''}
+                    title={`${itemName || ''} (${formatTime(realDuration || 0)})`}
                     src={currentStreamUrl}
                     crossOrigin
                     playsInline
-                    autoPlay
                     className="w-full h-full"
                     onTimeUpdate={(e: any) => {
                       const ct = (e?.detail?.currentTime ?? e?.currentTime ?? 0) + (seekOffset || 0)
@@ -1670,9 +1531,20 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                     onPlay={() => {
                       setStatus('playing')
                       setIsPlaying(true)
+                      if (currentType === 'movie') {
+                        startProgressTracking('movie', currentItemId)
+                      } else if (currentType === 'episode') {
+                        const episodeStreamId = currentItemId.startsWith('episode_')
+                          ? currentItemId.replace('episode_', '')
+                          : currentItemId
+                        startProgressTracking('episode', episodeStreamId)
+                      }
                     }}
                     onPause={() => {
                       setIsPlaying(false)
+                    }}
+                    onError={(e) => {
+                      console.error('[Vidstack] Error:', e)
                     }}
                   >
                     <MediaProvider>
@@ -1688,7 +1560,8 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                       ))}
                     </MediaProvider>
                     <DefaultVideoLayout icons={defaultLayoutIcons} />
-                  </MediaPlayer>
+                    </MediaPlayer>
+                  </>
                 ) : null}
 
                 {/* Buffering spinner */}
@@ -1988,7 +1861,7 @@ setSeekOffset(target)
                     </div>
                   </div>
                 )}
-                {status === 'ready-click-to-play' && (
+                {status === 'ready-click-to-play' && currentType === 'channel' && (
                   <button
                     onClick={handlePlayClick}
                     className="absolute inset-0 flex items-center justify-center bg-black/60 hover:bg-black/50 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 z-10"
@@ -2012,9 +1885,9 @@ setSeekOffset(target)
                     <span className="text-sm">Loading...</span>
                   </div>
                 )}
-                 {status === 'ready-click-to-play' && (
-                   <p className="text-slate-400 text-sm">Click play to start</p>
-                 )}
+                 {status === 'ready-click-to-play' && currentType === 'channel' && (
+                    <p className="text-slate-400 text-sm">Click play to start</p>
+                  )}
 {status === 'playing' && (
                      <>
                        <p className="text-green-400 text-sm">Playing</p>
