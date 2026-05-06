@@ -1,305 +1,167 @@
-# IPTV Player — Project Rules
+# M2Player Project State / Agent Instructions
 
-## What this project is
-A modern IPTV player web app built with React. Users connect with Xtream Codes credentials, and the app plays Live TV, Movies, and Series in the browser. The app is designed to also work on TV browsers (Fire TV Silk, Android TV Bro) using keyboard/remote navigation. In the future it will be ported to React Native for native Android TV / Fire TV apps.
+## Project
+M2Player IPTV web player hosted at:
 
-## The user
-The project owner has no prior coding experience. AI writes the code. Write clean, commented, production-quality code without experimental patterns.
+/home/m2player/htdocs/m2player.ru
 
-## Tech stack (do not substitute without asking)
-- Build tool: Vite
-- Framework: React 18 with TypeScript
-- Styling: Tailwind CSS v3
-- Routing: React Router v6
-- State: Zustand
-- Data fetching/caching: TanStack Query v5
-- Local storage: Dexie.js with dexie-react-hooks
-- Video player: mpegts.js (for MPEG-TS live streams)
-- Virtualization: @tanstack/react-virtual
-- M3U parsing: iptv-playlist-parser (not yet installed; post-MVP)
-- Icons: lucide-react
+Domain:
+https://m2player.ru
 
-## Architecture rules
-- Folder structure: src/components, src/pages, src/stores, src/lib, src/types, src/hooks
-- One component per file. PascalCase filenames for components, camelCase for utilities.
-- TypeScript strict, avoid `any`
-- Zustand for global state, never Context/Redux
-- TanStack Query for async data (no raw useEffect + fetch)
-- All styling in Tailwind classes, no CSS files
-- Components under 200 lines; split if larger
+Stack:
+- React + Vite + TypeScript frontend
+- Vidstack player
+- Express backend server.js
+- PM2 process name: m2player
+- Node via m2player user nvm:
+  /home/m2player/.nvm/versions/node/v22.22.2/bin/node
+  /home/m2player/.nvm/versions/node/v22.22.2/bin/pm2
 
-## UI rules
-- Dark theme only
-- TV-friendly: Tab + Arrow keys work everywhere, visible focus rings
-- Minimum font size 16px, buttons minimum 44px tall
-- Mobile responsive by default
-- No hover-only interactions — every hover has a focus equivalent
+## Current branch
+Working branch:
+no-heavy-mkv-transcode-strategy
 
-## Responsive Design (MUST follow for every component)
+Saved experiment branch:
+vidstack-experiment
 
-### Target devices
-- Desktop browsers (1920x1080+)
-- Tablets (768px - 1024px)
-- Mobile phones (320px - 768px)
-- TV browsers (Fire TV Silk, Android TV Bro) — 1920x1080, remote/keyboard navigation
+Saved tag:
+vidstack-hls-mkv-experiment-2026-05-06
 
-### Breakpoints
-- Mobile: < 768px
-- Tablet: 768px - 1024px
-- Desktop: 1024px - 1920px
-- TV: 1920px+
+Saved commit:
+8995a6e Save Vidstack HLS MKV experiment before new playback strategy
 
-### Layout rules
-- Use Tailwind responsive prefixes: `sm:` `md:` `lg:` `xl:` `2xl:` — default is mobile-first
-- Channel grids: 1 column mobile, 2 tablet, 3-4 desktop
-- Video player: full-width mobile, max-width desktop
-- Navigation: hamburger on mobile, horizontal on desktop
+## Important context
 
-### Typography rules
-- Minimum font: 16px (text-base) everywhere
-- Channel names: text-lg mobile, text-xl desktop
-- Headings: text-2xl mobile, text-4xl desktop
-- Never below 14px (text-sm) for readable text
+We tested MKV -> HLS generation with Vidstack.
 
-### Touch targets & spacing
-- Minimum button/card height: 48px (h-12) on all devices
-- Minimum button width: 120px on mobile
-- Container padding: px-4 mobile, px-8 desktop
-- Grid gaps: gap-2 mobile, gap-4 desktop
-- Minimum 8px spacing between clickable elements
+It worked technically:
+- server generated /hls/movie/:movieId/master.m3u8
+- browser loaded master.m3u8 and seg_XXXXX.ts
+- Vidstack could play generated HLS
+- cache playlist route was fixed
+- no-cache headers were added
+- progressive HLS generation was added
+- reconnect options were added
+- 1080p fast profile was tested
 
-### Video player responsive rules
-- Mobile: full-width, 16:9, controls always visible
-- Tablet: max-width 90vw, centered
-- Desktop: max-width 1280px, centered
-- TV: full-screen, large control buttons (min 64px)
-- Player controls: stack vertical mobile, horizontal desktop/TV
+But this strategy caused high VPS CPU usage.
 
-### Images & logos
-- Channel logos: 80x80 mobile, 120x120 desktop
-- Use object-contain to prevent distortion
-- Lazy load: loading="lazy" on all images
+HOSTKEY warned/throttled the VPS because ffmpeg used sustained CPU >70%.
 
-### Keyboard/Remote navigation (TV)
-- All interactive elements must have tabIndex
-- Focus rings: ring-4 on TV (larger), ring-2 on desktop/mobile
-- Arrow key navigation for channel grids
-- Escape key to close modals / go back
+Conclusion:
+Do NOT allow public users to automatically trigger heavy MKV -> HLS video transcoding.
 
-### Responsive utility
-Use `src/lib/responsive.ts` for device detection:
-```typescript
-import { isMobile, isTV, getDeviceType } from '../lib/responsive'
-```
+## Current strategic decision
 
-### Performance on mobile
-- Limit initial channel list to 50 items on mobile (virtualize if more)
-- Use smaller video buffer on mobile
-- Lazy load images
+Keep Vidstack as the main player.
 
-### Testing requirement
-Every component MUST be tested on:
-- Mobile viewport (375px)
-- Tablet viewport (768px)
-- Desktop viewport (1280px)
-- TV viewport (1920px)
+Stop automatic heavy MKV video transcoding on public playback.
 
-No component should be marked as complete until it works correctly on all four viewports.
+New playback priority:
+1. Direct/proxied playback first.
+2. Use existing cached HLS only if already available.
+3. For MKV without cache, do NOT auto-start heavy video transcoding.
+4. Use ffprobe only for inspection where needed.
+5. Add external subtitle support with .vtt files.
+6. Internal subtitles may be extracted only as subtitle files, not full video conversion.
+7. Audio track support should be planned via lightweight remux/package only when possible.
+8. Heavy video transcoding should become optional/admin/manual fallback, disabled by default.
+9. Do not break normal live/movie/series playback.
 
-## Critical technical constraints (learned the hard way)
+## What was learned
 
-### React Strict Mode is DISABLED in this project
-Located in src/main.tsx. Do NOT re-enable. It conflicts with media libraries (mpegts.js) that manage their own lifecycle.
+### HLS route fixes that worked
+The backend route:
+GET /hls/movie/:movieId/master.m3u8
 
-### Credentials lifecycle
-- Stored encrypted in IndexedDB (AES-GCM 256-bit)
-- Decrypted ONCE by playlistStore.loadSourcesFromDb() on app start
-- Exposed DECRYPTED via getActiveSource() — callers must NOT call decryptString() again
-- Never log credentials, even in error messages
+was patched so it:
+- checks existing cache playlist first
+- returns valid playlist without requiring query params
+- returns 202 if generation is active but playlist is not ready
+- only requires query params when starting generation
+- returns .m3u8 with no-cache headers
+- avoids 304 stale playlist responses
+- sends playlist content directly instead of sendFile
 
-### UUID generation
-Use generateId() from src/lib/uuid — crypto.randomUUID() fails in non-secure contexts (LAN IPs). generateId() falls back to crypto.getRandomValues() which works everywhere.
+### ffmpeg reconnect fixes that helped
+Input options tested:
+-reconnect 1
+-reconnect_streamed 1
+-reconnect_at_eof 1
+-reconnect_delay_max 10
+-rw_timeout 15000000
 
-### Vite environment variables
-In vite.config.ts, use `loadEnv(mode, process.cwd(), '')` — never `process.env.X` directly. The latter doesn't read .env.local.
+These helped when upstream MKV streams ended early.
 
-### HTTP response bodies
-A response body can only be read ONCE. Always read into a variable first, then parse. Never call both .json() and .text() on the same response.
+### CPU-heavy profile problem
+Original/testing HLS generation used libx264 and was too heavy for VPS.
 
-### Video playback
-- Chrome blocks autoplay without user interaction
-- Always provide a user-click-to-play button on first load
-- Pattern: setup player on mount, but call player.play() or video.play() only from an onClick handler
-- For live streams, use mpegts.createPlayer with { type: 'mpegts', isLive: true }
-- Stream URL format: `{serverUrl}/live/{username}/{password}/{streamId}.ts`
+4K MKV -> HLS 1080p even with:
+-preset ultrafast
+-crf 28
+-vf scale='min(1920,iw)':-2
 
-### App.tsx routing
-Initial-load routing runs ONCE via useRef guard. Never add useEffect that force-redirects on every render — it breaks navigation to specific routes.
+still caused sustained high CPU.
 
-### Proxy setup
-- API calls go DIRECTLY to the Xtream server (serverUrl from login form)
-- The Xtream server MUST have CORS headers enabled for the app's origin
-- Stream URLs go directly to the Xtream server (Chrome bypasses CORS for media elements)
-- Enable CORS in your Xtream admin panel: Settings → API/CORS → add your origin
-- Production: a server-side proxy avoids CORS configuration entirely (not yet built)
+Therefore heavy video transcode must not be public default.
 
-### Secure context requirement
-AES-GCM encryption (Web Crypto API) requires a secure context (HTTPS or localhost). The app shows a clear error in XtreamCodesForm when accessed via LAN IP without HTTPS.
+## Current safe operating rules
 
-## What NOT to do
-- Do NOT add features not asked for
-- Do NOT install packages without approval
-- Do NOT refactor working code unless asked
-- Do NOT proxy streams through a backend
-- Do NOT store credentials in plain text anywhere
-- Do NOT bundle default playlists or provider suggestions
-- Do NOT re-enable React Strict Mode
+Before making changes:
+- Check current branch with:
+  git branch --show-current
+- Do not work directly on vidstack-experiment unless intentionally restoring old experiment.
+- Do not commit hls-cache, .ts, .m3u8, or generated media.
+- Do not expose provider credentials in logs or UI.
+- Do not start ffmpeg heavy transcoding automatically.
+- Keep Vidstack.
 
-## Debugging rules (learned from painful debugging)
-- Every async operation logs to console with prefix [FeatureName]
-- Every catch block logs the actual error before setting user-facing message
-- Never use generic error messages — always include the real err.message
-- When a component mounts or starts work, log that it started
-- When it succeeds, log that it succeeded
-- Trust console logs and Network tab over UI state during debugging
+Before restarting:
+Use PM2 as m2player user:
 
-## Post-mortem lessons (do not repeat)
-1. Vite configs use loadEnv(), not process.env
-2. HTTP response bodies read exactly once
-3. Don't mix async generators with callbacks — pick one pattern
-4. Media libraries fight React Strict Mode — disabled here
-5. Credentials decrypted ONCE by store; don't re-decrypt elsewhere
-6. Every catch block logs err before setting user message
-7. Route redirects must respect current pathname, never force on every render
-8. Chrome needs user-click for first video play
-9. crypto.randomUUID fails in non-secure contexts; use generateId() from uuid.ts
-10. crypto.subtle also requires secure context; guard with crypto.subtle check
-11. Movie metadata requires get_vod_info API call; use regex to parse VOD ID from movie ID (movie-104817 → 104817)
-12. Always check activeSource.type before making Xtream API calls (may be 'm3u-url' instead of 'xtream')
-13. SeriesDetail: useLiveQuery returns `undefined` before query finishes — distinguish from `null` (not found) by checking `series === undefined` explicitly
-14. SeriesDetail: Reset `loading=true` when route parameter changes (useEffect with [seriesId]), otherwise stale `loading=false` causes wrong render
-15. SeriesDetail: API data (seriesInfo) may not be loaded when component renders — use optional chaining `seriesInfo?.info` not `seriesInfo.info` to avoid crashes
-16. ChannelCard heart button must use `e.stopPropagation()` to prevent card click (channel play) from firing when clicking heart
-17. Playlist switching persistence: `setActiveSource()` already writes `isActive` to Dexie, but `loadSourcesFromDb()` must also read `record.isActive` back into source objects or refresh falls back to the first-created playlist
-18. SeriesDetail: some providers return `get_series_info` with `info` and `seasons` but no `episodes`; guard every `Object.keys/Object.entries` access with `seriesInfo.episodes ?? {}` and treat `Play First` as unavailable when no episodes exist
-19. Some movie streams return broken metadata from provider (example: movie `1000165` returned `Content-Length: 0` on HEAD and `HTTP 458` on range request), so wrong video duration can be a provider stream issue rather than frontend logic
+su - m2player -c 'cd /home/m2player/htdocs/m2player.ru && /home/m2player/.nvm/versions/node/v22.22.2/bin/pm2 restart m2player --update-env'
 
-## Working style
-- Build one feature at a time, finish + commit before starting next
-- Commit after every working milestone with descriptive message
-- If unclear, ask the user rather than guess
-- Comment the "why" for non-obvious code, not the "what"
+Build:
 
-## Latest Commit
-**Commit**: `a31d3ac` — "Fix movie and episode duration display using Xtream API real duration" (2026-05-02)
-**Changes**: 3 files changed, 150 insertions(+), 49 deletions(-)
-**Key changes**:
-- MovieDetail: extract `duration_secs` from `getVodInfo` and pass as `realDuration` in navigate state
-- SeriesDetail: pass `duration_secs` from `episode.info` to episode navigate state
-- Watch: read `realDuration` from `location.state`; use it to override tiny fragmented MP4 duration in video overlay (top-right clock + bottom seek bar); fallback to `video.duration` when no realDuration
-- Removed native video `controls`; replaced with custom overlay showing `currentTime / displayDuration` with real duration from API
-- `onTimeUpdate` updates progress bar width, top-right clock, and status bar clock
-- `onLoadedMetadata` sets duration text using realDuration when available
-- Seek bar `onClick` calculates target time using `displayDuration` and seeks directly (progressive MP4 seek works natively; transcoded streams use existing `/transcode ?seek=` support)
-- `EpisodeInfo` type gains optional `realDuration` field
-- `formatTime` helper added to Watch.tsx (converts seconds to H:MM:SS or M:SS)
-- Status bar now shows "Playing · 0:00 / 0:00" while playing
+npm run build
 
-## Current project state (updated 2026-04-27)
+Check ffmpeg:
 
-### Working features
-- Xtream Codes API integration (multi-provider support)
-- Live TV with category sidebar, channel grid, logos
-- Movies section with grid and playback
-- Series section with seasons/episodes and playback
-- Video player: mpegts.js for live TV, native video for movies/series
-- HLS.js support for .m3u8 streams
-- Channel switching via sidebar, arrow keys
-- Auto-advance to next channel on error (5s countdown)
-- Clean error overlay for unavailable channels
-- Watch history with resume for movies/episodes (not live)
-- Favorites (star icon)
-- Playlist sync and management
-- Top navigation with membership/playlist/device info
-- User dropdown menu with PIN code
-- Home page simplified into a more content-first launch pad (active playlist summary, continue watching, start watching, lighter playlist management)
-- Dark theme throughout
-- Mobile responsive design
-- Proxy server for live TV streams (CORS bypass)
-- EPG (TV Guide) with XMLTV parser — 128K+ programmes, 1765 channels
-- EPG syncs directly from provider's xmltv.php endpoint
-- Streaming XML parser handles 42MB+ files without memory issues
-- EPG data stored in Dexie with auto-sync every 24 hours
-- Manual Sync EPG button on TV Guide page
+ps aux | grep ffmpeg
 
-### Known limitations
-- Series .mkv files play only if browser supports the codec
-- Some IPTV providers may buffer due to slow servers (not code issue)
-- Some providers return incomplete `get_series_info` payloads (missing `episodes`) for certain series
-- Some providers serve broken movie metadata/range responses, causing wrong duration display in browser video controls — now fixed by passing real duration from API via navigate state
-- EPG availability depends on provider — some channels have no EPG data
-- get_short_epg API not supported by most providers, using XMLTV instead
-- No search yet
-- No multi-language yet
+Stop ffmpeg if needed:
 
-### Video player stack
-- Live TV: mpegts.js with these config settings:
-  enableWorker: false, enableStashBuffer: true,
-  stashInitialSize: 1MB, liveBufferLatencyChasing: false,
-  liveSync: false, lazyLoad: false, fixAudioTimestampGap: true
-- Movies/Series: native <video> element (direct URL to provider)
-- HLS streams: Hls.js
-- DO NOT add response timeouts to the live proxy (kills streams)
-- DO NOT save watch history for live channels (causes buffering)
-- DO NOT use enableWorker:true with relative URLs (Workers cant use them)
-- DO NOT override Content-Type header for live streams in proxy
+pkill -f ffmpeg
 
-### Proxy architecture
-- /api/xtream/* — Vite proxy for Xtream Codes API calls
-- /proxy/live/* — Custom middleware for live TV streams
-  - Pipes upstream response directly (no buffering)
-  - Connection timeout only (10s), NO response timeout
-  - Passes through upstream Content-Type as-is
-- Movies and series use direct provider URLs (no proxy)
+## Needed cleanup
 
-## EPG architecture
-- Fetches XMLTV directly from provider (NOT through Vite proxy):
-  ${serverUrl}/xmltv.php?username=X&password=Y
-- Streaming XML parser: reads chunks via ReadableStream, extracts
-  <programme> blocks incrementally, batch inserts 500 at a time
-- Dexie table: epg with ++id, channelId, sourceId, start, stop
-- Match channels via epg_channel_id field from Xtream API
-- Title and description may be Base64 encoded — parser handles both
-- DO NOT use /api/xtream/ proxy for xmltv.php (returns 404)
-- DO NOT use get_short_epg API (most providers return empty or 400)
-- DO NOT load entire XML into memory (files can be 42MB+)
-- DO NOT use bulkAdd for EPG — use bulkPut (handles re-sync duplicates)
+Add/verify .gitignore includes:
 
-## Bugs fixed (2026-04-27 session)
-- Live TV sidebar channel switching race condition (empty src)
-- Series episode sidebar switching race condition (same fix)
-- Series episode URL building (matches movie pattern now)
-- Proxy 30-second response timeout killing live streams
-- Proxy Content-Type override corrupting MPEG-TS data
-- mpegts.js zero config causing buffering (added proper buffer settings)
-- Watch history for live channels causing buffering (disabled)
-- Channel error overlay flashing during normal transitions (3s delay)
-- Channel unavailable overlay redesigned (minimal + auto-advance)
-- EPG xmltv.php fetched through wrong proxy (404) — use direct URL
-- EPG streaming parser not trimming buffer (0 programs parsed)
-- EPG parseProgrammeBlock regex not matching title without lang attr
-- EPG Dexie bulkAdd failing on re-sync duplicates — changed to bulkPut
+hls-cache/
+*.ts
+*.m3u8
+server.js.bak*
+src/pages/*.bak*
+*.log
 
-## Bugs fixed (2026-05-02 session)
-- Add playlist page simplified from a two-column promo layout to a cleaner single-card utility screen
-- Home page simplified to reduce dashboard clutter and emphasize content entry points
-- Active playlist persistence across refresh fixed by restoring `isActive` from Dexie in `playlistStore.loadSourcesFromDb()`
-- SeriesDetail crash fixed when provider returns `episodes: null/undefined` by guarding `Object.keys/Object.entries`
-- Movie and series detail pages received style-only polish (spacing, readability, info panel anchoring) without changing data logic
+Note:
+A previous push was large (~725 MB), likely because backup/cache/generated files were included. Avoid this going forward.
 
-## Next features to build
-- Search across channels, movies, series
-- EPG schedule view — click channel to see 12h program list
-- EPG on Watch page sidebar — show Now/Next below channel name
-- Multi-language support
-- VPS deployment with production proxy
+## Next recommended task
+
+First task for any coding agent:
+
+Inspect:
+- server.js
+- src/pages/Watch.tsx
+
+Then propose a safe implementation plan for:
+- no-heavy-mkv-transcode strategy
+- Vidstack direct/proxy playback
+- external subtitles .vtt support
+- optional internal subtitle extraction
+- future audio track support
+- disabled-by-default admin/manual heavy transcode fallback
+
+Do not implement large changes before the plan is approved.
+
