@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState, useCallback, useLayoutEffect } from 'react'
+import { useEffect, useRef, useState, useCallback, useLayoutEffect, useMemo } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { ArrowLeft, Loader2, Maximize2, Minimize2, List, Tv2, ChevronLeft, ChevronRight, Film, Heart, Play, Pause, Volume2, VolumeX, SkipBack, SkipForward, Settings, AlertTriangle } from 'lucide-react'
 import mpegts from 'mpegts.js'
 import Hls from 'hls.js'
+import { MediaPlayer, MediaProvider, type MediaPlayerInstance } from '@vidstack/react'
+import { DefaultVideoLayout, defaultLayoutIcons } from '@vidstack/react/player/layouts/default'
+import '@vidstack/react/player/styles/default/theme.css'
+import '@vidstack/react/player/styles/default/layouts/video.css'
 import { db } from '../lib/db'
 import { ChannelErrorOverlay } from '../components/ChannelErrorOverlay'
 import { usePlaylistStore } from '../stores/playlistStore'
@@ -148,6 +152,7 @@ export default function Watch() {
   const videoContainerRef = useRef<HTMLDivElement>(null)
   const playerRef = useRef<ReturnType<typeof mpegts.createPlayer> | null>(null)
   const hlsRef = useRef<Hls | null>(null)
+  const vidstackRef = useRef<MediaPlayerInstance>(null)
   const currentStreamUrlRef = useRef<string>('')
   const allItemsRef = useRef<WatchableItem[]>([])
   const categoryItemsRef = useRef<WatchableItem[]>([])
@@ -175,6 +180,8 @@ export default function Watch() {
     pathname.includes('/watch/episode/') ? 'episode' :
     null
 
+  const useVidstack = new URLSearchParams(window.location.search).get('player') === 'vidstack'
+
   const [status, setStatus] = useState<WatchStatus>('loading')
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [itemName, setItemName] = useState<string>('')
@@ -187,7 +194,80 @@ export default function Watch() {
   const [currentType, setCurrentType] = useState<'channel' | 'movie' | 'episode'>('channel')
   const [activeSource, setActiveSource] = useState<Awaited<ReturnType<typeof getActiveSource>> | null>(null)
   const [lastVideoErrorCode, setLastVideoErrorCode] = useState<number | null>(null)
-const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
+  const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
+  const [vidstackHlsReady, setVidstackHlsReady] = useState(false)
+  const [vidstackHlsProcessing, setVidstackHlsProcessing] = useState(false)
+  const [vidstackHlsError, setVidstackHlsError] = useState<string | null>(null)
+  const vidstackSourceType = currentStreamUrl.includes('.m3u8')
+    ? 'HLS'
+    : (currentStreamUrl.includes('ext=mkv')
+      ? 'MKV'
+      : (currentStreamUrl.includes('ext=mp4') || currentStreamUrl.includes('.mp4')
+        ? 'MP4'
+        : 'UNKNOWN'))
+  const vidstackMovieId = useMemo(() => {
+    const routeMovieMatch = routeId?.match(/movie-(\d+)/)
+    const currentIdMatch = currentItemId?.match(/movie-(\d+)/)
+    return routeMovieMatch?.[1] || currentIdMatch?.[1] || routeId || currentItemId || ''
+  }, [routeId, currentItemId])
+
+  const vidstackHlsPlaybackUrl = useMemo(() => {
+    const isMkvSource = currentStreamUrl.includes('ext=mkv') || currentStreamUrl.includes('.mkv')
+    if (!useVidstack || currentType !== 'movie' || !isMkvSource || activeSource?.type !== 'xtream' || !vidstackMovieId) {
+      return ''
+    }
+    return `/hls/movie/${encodeURIComponent(String(vidstackMovieId))}/master.m3u8`
+  }, [
+    useVidstack,
+    currentType,
+    currentStreamUrl,
+    activeSource,
+    vidstackMovieId,
+  ])
+
+  const vidstackHlsCheckUrl = useMemo(() => {
+    const isMkvSource = currentStreamUrl.includes('ext=mkv') || currentStreamUrl.includes('.mkv')
+    const sourceFields = activeSource as Record<string, string | undefined> | null
+    const baseServer = sourceFields ? (sourceFields.serverUrl || sourceFields.server || '') : ''
+    if (!useVidstack || currentType !== 'movie' || !isMkvSource || activeSource?.type !== 'xtream' || !vidstackMovieId || !baseServer) {
+      return ''
+    }
+
+    const params = new URLSearchParams()
+    params.set('serverUrl', baseServer)
+    params.set('username', activeSource.username)
+    params.set('password', activeSource.password)
+    params.set('ext', 'mkv')
+    return `${vidstackHlsPlaybackUrl}?${params.toString()}`
+  }, [
+    activeSource,
+    currentStreamUrl,
+    currentType,
+    useVidstack,
+    vidstackHlsPlaybackUrl,
+  ])
+
+  const isVidstackGeneratedHls = useVidstack && currentType === 'movie' && vidstackSourceType === 'MKV' && !!vidstackHlsPlaybackUrl
+
+  const vidstackSrc = useMemo(() => {
+    if (!currentStreamUrl) return ''
+
+    if (isVidstackGeneratedHls) {
+      return { src: vidstackHlsPlaybackUrl, type: 'application/x-mpegurl' as const }
+    }
+
+    if (currentStreamUrl.includes('.m3u8')) {
+      return { src: currentStreamUrl, type: 'application/x-mpegurl' as const }
+    }
+    if (currentStreamUrl.includes('.mp4')) {
+      return { src: currentStreamUrl, type: 'video/mp4' as const }
+    }
+    return currentStreamUrl
+  }, [
+    currentStreamUrl,
+    isVidstackGeneratedHls,
+    vidstackHlsPlaybackUrl,
+  ])
   const [currentContainerExtension, setCurrentContainerExtension] = useState<string>('mp4')
   const [channelEpg, setChannelEpg] = useState<Record<string, EpgProgram | null>>({})
   const [realDuration, setRealDuration] = useState<number>(0)
@@ -231,6 +311,67 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
   const isFavorite = useFavoritesStore((state) => state.isFavorite)
   const updateWatchProgress = useWatchHistoryStore((state) => state.updateWatchProgress)
   const getWatchHistory = useWatchHistoryStore((state) => state.getWatchHistory)
+
+  useEffect(() => {
+    if (!isVidstackGeneratedHls || !vidstackHlsCheckUrl) {
+      setVidstackHlsReady(false)
+      setVidstackHlsProcessing(false)
+      setVidstackHlsError(null)
+      return
+    }
+
+    let cancelled = false
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const startedAt = Date.now()
+
+    const pollHls = async () => {
+      if (cancelled) return
+      if (Date.now() - startedAt > 180000) {
+        setVidstackHlsProcessing(false)
+        setVidstackHlsError('HLS preparation timed out after 3 minutes')
+        return
+      }
+
+      try {
+        const response = await fetch(vidstackHlsCheckUrl, { cache: 'no-store' })
+        const text = await response.text()
+
+        if (response.status === 200 && text.includes('#EXTM3U')) {
+          setVidstackHlsReady(true)
+          setVidstackHlsProcessing(false)
+          setVidstackHlsError(null)
+          return
+        }
+
+        if (response.status === 202) {
+          setVidstackHlsProcessing(true)
+          setVidstackHlsError(null)
+        } else {
+          const shortBody = text.slice(0, 140).replace(/\s+/g, ' ')
+          setVidstackHlsError(`HLS poll status ${response.status}${shortBody ? `: ${shortBody}` : ''}`)
+        }
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        setVidstackHlsError(`HLS poll failed: ${message}`)
+      }
+
+      if (!cancelled) {
+        setVidstackHlsReady(false)
+        setVidstackHlsProcessing(true)
+        timer = setTimeout(pollHls, 2000)
+      }
+    }
+
+    setVidstackHlsReady(false)
+    setVidstackHlsProcessing(true)
+    setVidstackHlsError(null)
+    pollHls()
+
+    return () => {
+      cancelled = true
+      if (timer) clearTimeout(timer)
+    }
+  }, [isVidstackGeneratedHls, vidstackHlsCheckUrl])
 
   const handleFavoriteToggle = async () => {
     if (!activeSource || !currentItemId || !currentType) return
@@ -1847,6 +1988,105 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                 onMouseMove={currentType !== 'channel' ? resetControlsTimer : undefined}
                 onMouseLeave={currentType !== 'channel' ? () => { if (videoRef.current && !videoRef.current.paused) setShowControls(false) } : undefined}
               >
+                {useVidstack && (() => {
+                  console.log('[Vidstack Experiment] source', {
+                    currentStreamUrl,
+                    vidstackHlsCheckUrl,
+                    vidstackHlsPlaybackUrl,
+                    vidstackSrc,
+                    isVidstackGeneratedHls,
+                    vidstackHlsReady,
+                    currentType,
+                    currentItemId,
+                    itemName,
+                    status,
+                  })
+                  return null
+                })()}
+                {useVidstack ? (
+                  <>
+                    <video
+                      ref={videoRef}
+                      className="hidden"
+                      muted
+                      playsInline
+                    />
+                  {currentStreamUrl && (!isVidstackGeneratedHls || vidstackHlsReady) ? (
+                    <MediaPlayer
+                      ref={vidstackRef}
+                      title={itemName || ''}
+                      src={vidstackSrc}
+                      crossOrigin
+                      streamType={currentType === 'channel' ? 'live' : 'on-demand'}
+                      playsInline
+                      className="w-full h-full"
+                      onLoadStart={() => console.log('[Vidstack Experiment] load-start')}
+                      onProviderChange={(e) => console.log('[Vidstack Experiment] provider-change', e)}
+                      onCanPlay={(e) => {
+                        console.log('[Vidstack Experiment] can-play', e)
+                        setStatus('ready-click-to-play')
+                        setIsBuffering(false)
+                      }}
+                      onPlaying={(e) => {
+                        console.log('[Vidstack Experiment] playing', e)
+                        setStatus('playing')
+                        setIsPlaying(true)
+                        setIsBuffering(false)
+                      }}
+                      onPlay={() => {
+                        setStatus('playing')
+                        setIsPlaying(true)
+                      }}
+                      onPause={() => {
+                        setIsPlaying(false)
+                      }}
+                      onWaiting={(e) => {
+                        console.log('[Vidstack Experiment] waiting', e)
+                        setIsBuffering(true)
+                      }}
+                      onTimeUpdate={(e: any) => {
+                        const rawCurrentTime = e?.detail?.currentTime ?? e?.currentTime ?? 0
+                        setCurrentTime(rawCurrentTime)
+                      }}
+                      onError={(e) => {
+                        console.error('[Vidstack Experiment] error', {
+                          event: e,
+                          currentStreamUrl,
+                          vidstackHlsCheckUrl,
+                          vidstackHlsPlaybackUrl,
+                          vidstackSrc,
+                          isVidstackGeneratedHls,
+                          vidstackHlsReady,
+                          state: vidstackRef.current?.state,
+                        })
+                        setStatus('error')
+                      }}
+                    >
+                      <MediaProvider />
+                      <DefaultVideoLayout icons={defaultLayoutIcons} />
+                    </MediaPlayer>
+                  ) : isVidstackGeneratedHls ? (
+                    <div className="w-full h-full flex items-center justify-center bg-black text-white text-base">
+                      <div className="text-center px-4">
+                        <div className="text-xl font-semibold mb-2">Preparing HLS stream...</div>
+                        <div className="text-sm text-slate-300">Processing: {vidstackHlsProcessing ? 'YES' : 'NO'}</div>
+                        <div className="text-sm text-slate-300">URL: {vidstackHlsCheckUrl ? 'YES' : 'NO'}</div>
+                        <div className="text-sm text-slate-300">SRC: HLS-PREPARING</div>
+                        {vidstackHlsError && <div className="text-sm text-rose-300 mt-2">Error: {vidstackHlsError}</div>}
+                      </div>
+                    </div>
+                  ) : (
+                    (() => {
+                      console.log('[Vidstack Experiment] waiting for currentStreamUrl', { routeType, currentType, currentItemId, status })
+                      return (
+                        <div className="w-full h-full flex items-center justify-center bg-black text-white"> 
+                          Waiting for stream URL...
+                        </div>
+                      )
+                    })()
+                  )}
+                  </>
+                ) : (
                 <video
                   ref={videoRef}
                   playsInline
@@ -1896,7 +2136,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                     }
                   }}
                 />
-
+                )}
                 {/* Buffering spinner */}
                 {isBuffering && (
                   <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-20">
@@ -1905,7 +2145,7 @@ const [currentStreamUrl, setCurrentStreamUrl] = useState<string>('')
                 )}
 
                 {/* VOD CONTROLS OVERLAY - only for movies/episodes */}
-                {currentType !== 'channel' && (
+                {!useVidstack && currentType !== 'channel' && (
                   <>
                     {/* Center play/pause button - visible when paused or controls shown */}
                     {(!isPlaying || showControls) && (
@@ -2237,7 +2477,7 @@ setSeekOffset(target)
                     </div>
                   </div>
                 )}
-                {status === 'ready-click-to-play' && (
+                {!useVidstack && status === 'ready-click-to-play' && (
                   <button
                     onClick={handlePlayClick}
                     className="absolute inset-0 flex items-center justify-center bg-black/60 hover:bg-black/50 transition-colors focus:outline-none focus:ring-2 focus:ring-indigo-500/50 z-10"
@@ -2281,10 +2521,10 @@ setSeekOffset(target)
                     </p>
                   )}
                 </div>
-                {status === 'playing' && currentType === 'channel' && categoryItems.length > 1 && (
+                {!useVidstack && status === 'playing' && currentType === 'channel' && categoryItems.length > 1 && (
                   <p className="text-slate-500 text-xs hidden sm:block">↑ / ↓ arrows to change channel</p>
                 )}
-                {status === 'playing' && currentType !== 'channel' && (
+                {!useVidstack && status === 'playing' && currentType !== 'channel' && (
                   <p className="text-slate-500 text-xs hidden sm:block">Space = play/pause · ← → = seek 10s · F = fullscreen</p>
                 )}
             </div>
@@ -2313,6 +2553,10 @@ setSeekOffset(target)
                     const itemId = item.type === 'episode' ? `episode_${(item.data as EpisodeInfo).streamId}` : item.data.id
                     const isActive = itemId === currentItemId
                     const itemName = getItemName(item)
+                    const movieExtRaw = item.type === 'movie' ? ((item.data as MovieRecord).containerExtension || '').toLowerCase() : ''
+                    const movieSrcLabel = movieExtRaw
+                      ? (movieExtRaw.includes('m3u8') ? 'HLS' : movieExtRaw === 'mp4' ? 'MP4' : movieExtRaw === 'mkv' ? 'MKV' : 'UNKNOWN')
+                      : ''
                     return (
                       <button
                         key={itemId}
@@ -2321,6 +2565,9 @@ onClick={() => {
                           if (item.type === 'episode') {
                             navigateToEpisode(item.data as EpisodeInfo)
                           } else if (item.type === 'movie') {
+                            if (useVidstack) {
+                              console.log('[Vidstack Experiment] related clicked', item)
+                            }
                             navigateToMovie(item.data.id)
                           } else {
                             zapTo(item.data.id)
@@ -2364,6 +2611,9 @@ onClick={() => {
                           </div>
                         )}
                         <span className="flex-1 text-sm font-medium truncate text-left">{itemName}</span>
+                        {useVidstack && item.type === 'movie' && movieSrcLabel && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-200 border border-slate-600">{movieSrcLabel}</span>
+                        )}
                         {item.type === 'channel' && channelEpg[item.data.id] && (
                           <span className="text-xs text-slate-500 truncate max-w-[100px]">
                             Now: {channelEpg[item.data.id]?.title}

@@ -1,5 +1,6 @@
 import express from 'express';
 import path from 'path';
+import { existsSync, mkdirSync, createReadStream, readFileSync, appendFileSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { Readable } from 'stream';
 import { spawn } from 'child_process';
@@ -12,6 +13,11 @@ const __dirname = path.dirname(__filename);
 const distPath = path.join(__dirname, 'dist');
 
 app.use(express.json());
+
+app.use('/hls', (req, res, next) => {
+  console.log('[HLS DEBUG] incoming', req.method, req.originalUrl);
+  next();
+});
 
 let ffmpegAvailable = false;
 
@@ -37,6 +43,173 @@ async function checkFFmpeg() {
 }
 
 checkFFmpeg();
+
+const hlsCacheRoot = path.join(process.cwd(), 'hls-cache');
+if (!existsSync(hlsCacheRoot)) {
+  mkdirSync(hlsCacheRoot, { recursive: true });
+}
+
+const hlsMovieJobs = new Map();
+
+function getMovieHlsDir(movieId) {
+  return path.join(hlsCacheRoot, `movie-${movieId}`);
+}
+
+function getMovieMasterPath(movieId) {
+  return path.join(getMovieHlsDir(movieId), 'master.m3u8');
+}
+
+function parseHmsToSeconds(hms) {
+  const parts = hms.split(':').map((v) => Number(v));
+  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return 0;
+  return (parts[0] * 3600) + (parts[1] * 60) + parts[2];
+}
+
+function getPlaylistDurationSeconds(masterPath) {
+  if (!existsSync(masterPath)) return 0;
+  const playlist = readFileSync(masterPath, 'utf8');
+  const matches = playlist.match(/#EXTINF:([0-9.]+),/g) || [];
+  let total = 0;
+  for (const entry of matches) {
+    const value = Number(entry.replace('#EXTINF:', '').replace(',', '').trim());
+    if (!Number.isNaN(value)) total += value;
+  }
+  return total;
+}
+
+function startMovieHlsGeneration(movieId, upstreamUrl, options = {}) {
+  const existing = hlsMovieJobs.get(movieId);
+  if (existing) return existing;
+
+  const movieDir = getMovieHlsDir(movieId);
+  try {
+    if (!existsSync(movieDir)) {
+      mkdirSync(movieDir, { recursive: true });
+    }
+  } catch (err) {
+    console.error('[HLS] Failed to create cache directory:', {
+      movieId,
+      movieDir,
+      error: err instanceof Error ? err.message : String(err),
+      hint: 'Ensure hls-cache is owned by m2player:m2player',
+    });
+    return null;
+  }
+
+  const masterPath = getMovieMasterPath(movieId);
+  const segmentPattern = path.join(movieDir, 'seg_%05d.ts');
+
+  const ffmpegArgs = [
+    '-y',
+    '-reconnect', '1',
+    '-reconnect_streamed', '1',
+    '-reconnect_at_eof', '1',
+    '-reconnect_delay_max', '10',
+    '-rw_timeout', '15000000',
+    '-i', upstreamUrl,
+    '-map', '0:v:0',
+    '-map', '0:a:0?',
+    '-vf', "scale='min(1920,iw)':-2",
+    '-c:v', 'libx264',
+    '-preset', 'ultrafast',
+    '-tune', 'zerolatency',
+    '-crf', '28',
+    '-pix_fmt', 'yuv420p',
+    '-c:a', 'aac',
+    '-b:a', '160k',
+    '-ac', '2',
+    '-f', 'hls',
+    '-hls_time', '6',
+    '-hls_list_size', '0',
+    '-hls_flags', 'independent_segments+append_list',
+    '-hls_segment_type', 'mpegts',
+    '-hls_segment_filename', segmentPattern,
+    masterPath,
+  ];
+
+  console.log('[HLS] Starting movie generation:', {
+    movieId,
+    upstreamUrl: upstreamUrl.replace(/password=[^&]+/, 'password=[HIDDEN]'),
+    masterPath,
+    segmentPattern,
+  });
+
+  const ffmpeg = spawn('ffmpeg', ffmpegArgs);
+  let stderrBuffer = '';
+  let expectedDurationSeconds = 0;
+  let lastProgressLogAt = 0;
+
+  ffmpeg.stderr.on('data', (d) => {
+    const line = d.toString().trim();
+    if (!line) return;
+    stderrBuffer += `${line}\n`;
+    const durationMatch = line.match(/DURATION\s*:\s*(\d{2}:\d{2}:\d{2}(?:\.\d+)?)/i);
+    if (durationMatch) {
+      expectedDurationSeconds = parseHmsToSeconds(durationMatch[1]);
+    }
+    const speedMatch = line.match(/speed=\s*([0-9.]+)x/i);
+    const now = Date.now();
+    if (speedMatch && now - lastProgressLogAt > 5000) {
+      lastProgressLogAt = now;
+      console.log('[HLS progress]', {
+        movieId,
+        speedX: Number(speedMatch[1]),
+      });
+    }
+    console.log(`[HLS ffmpeg][${movieId}]`, line);
+  });
+
+  ffmpeg.on('error', (err) => {
+    console.error('[HLS] ffmpeg error:', err.message);
+  });
+
+  ffmpeg.on('close', (code, signal) => {
+    const prematureError = /Stream ends prematurely|Input\/output error/i.test(stderrBuffer);
+    let playlistDurationSeconds = 0;
+    try {
+      playlistDurationSeconds = getPlaylistDurationSeconds(masterPath);
+    } catch {
+      playlistDurationSeconds = 0;
+    }
+    const shortPlaylist = expectedDurationSeconds > 0 && playlistDurationSeconds > 0
+      ? playlistDurationSeconds < (expectedDurationSeconds * 0.9)
+      : false;
+    const incompleteGeneration = prematureError && shortPlaylist;
+
+    console.log('[HLS] ffmpeg exited:', {
+      movieId,
+      code,
+      signal,
+      expectedDurationSeconds,
+      playlistDurationSeconds,
+      prematureError,
+      shortPlaylist,
+      incompleteGeneration,
+    });
+
+    if (code === 0 && !incompleteGeneration && existsSync(masterPath)) {
+      try {
+        const playlist = readFileSync(masterPath, 'utf8');
+        if (!playlist.includes('#EXT-X-ENDLIST')) {
+          appendFileSync(masterPath, '\n#EXT-X-ENDLIST\n');
+        }
+      } catch (err) {
+        console.error('[HLS] Failed to finalize playlist:', err instanceof Error ? err.message : String(err));
+      }
+    } else if (incompleteGeneration) {
+      console.error('[HLS] Incomplete generation detected, ENDLIST not appended:', {
+        movieId,
+        expectedDurationSeconds,
+        playlistDurationSeconds,
+      });
+    }
+    hlsMovieJobs.delete(movieId);
+  });
+
+  const job = { ffmpeg, startedAt: Date.now(), masterPath };
+  hlsMovieJobs.set(movieId, job);
+  return job;
+}
 
 async function proxyRequest(req, res, targetUrl, options = {}) {
   const timeout = options.timeout || 30000;
@@ -423,7 +596,103 @@ app.use('/api/xmltv', async (req, res) => {
   await proxyRequest(req, res, targetUrl, { timeout: 60000 });
 });
 
+app.get('/hls/movie/:movieId/master.m3u8', (req, res) => {
+  const { movieId } = req.params;
+  console.log('[HLS DEBUG] master route hit', req.params, req.query);
+  const movieCacheDir = path.join(hlsCacheRoot, `movie-${movieId}`);
+  const masterPath = path.join(movieCacheDir, 'master.m3u8');
+
+  if (existsSync(masterPath)) {
+    try {
+      const playlist = readFileSync(masterPath, 'utf8');
+      if (playlist.includes('#EXTM3U')) {
+        res.setHeader('Access-Control-Allow-Origin', '*');
+        res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0');
+        res.setHeader('Pragma', 'no-cache');
+        res.setHeader('Expires', '0');
+        res.setHeader('Surrogate-Control', 'no-store');
+        res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+        res.setHeader('ETag', `"hls-${movieId}-${Date.now()}-${playlist.length}"`);
+        res.setHeader('Last-Modified', new Date().toUTCString());
+        return res.status(200).send(playlist);
+      }
+    } catch (err) {
+      console.error('[HLS] Failed to read playlist:', err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  if (hlsMovieJobs.has(movieId)) {
+    return res.status(202).json({
+      processing: true,
+      movieId,
+      message: 'HLS generation in progress',
+    });
+  }
+
+  const requestUrl = new URL(req.url, 'http://localhost:' + PORT);
+  const serverUrl = requestUrl.searchParams.get('serverUrl');
+  const username = requestUrl.searchParams.get('username');
+  const password = requestUrl.searchParams.get('password');
+  const ext = requestUrl.searchParams.get('ext') || 'mkv';
+
+  if (!serverUrl || !username || !password) {
+    return res.status(400).json({ error: 'Missing HLS parameters' });
+  }
+
+  if (!ffmpegAvailable) {
+    return res.status(503).json({ error: 'FFmpeg not available on server' });
+  }
+
+  const upstreamUrl = `${serverUrl.replace(/\/$/, '')}/movie/${encodeURIComponent(username)}/${encodeURIComponent(password)}/${encodeURIComponent(movieId)}.${encodeURIComponent(ext)}`;
+  const job = startMovieHlsGeneration(movieId, upstreamUrl);
+  if (!job) {
+    return res.status(500).json({
+      error: 'Failed to start HLS generation',
+      hint: 'Ensure hls-cache is owned by m2player:m2player',
+    });
+  }
+  return res.status(202).json({
+    processing: true,
+    movieId,
+    message: 'HLS generation started or already running',
+  });
+});
+
+app.get('/hls/movie/:movieId/:file', (req, res) => {
+  const { movieId, file } = req.params;
+  console.log('[HLS DEBUG] file route hit', req.params);
+
+  if (file.includes('..') || file.includes('/') || file.includes('\\')) {
+    return res.status(400).json({ error: 'Invalid filename' });
+  }
+
+  const filePath = path.join(getMovieHlsDir(movieId), file);
+  if (!existsSync(filePath)) {
+    return res.status(404).json({ error: 'HLS file not found' });
+  }
+
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  if (file.endsWith('.m3u8')) {
+    res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+  } else if (file.endsWith('.ts')) {
+    res.setHeader('Content-Type', 'video/mp2t');
+  }
+
+  return createReadStream(filePath).pipe(res);
+});
+
 app.use(express.static(distPath));
+
+app.use((req, res, next) => {
+  if (req.path.startsWith('/hls/')) {
+    console.warn('[HLS DEBUG] hls reached fallback guard', req.method, req.originalUrl);
+    return res.status(404).json({
+      error: 'HLS route not matched',
+      path: req.path,
+    });
+  }
+  next();
+});
 
 app.get(/.*/, (req, res) => {
   if (req.path.startsWith('/api/') || req.path.startsWith('/proxy/') || req.path.startsWith('/transcode') || req.path.startsWith('/probe')) {
@@ -434,5 +703,5 @@ app.get(/.*/, (req, res) => {
 
 app.listen(PORT, () => {
   console.log('m2player running on port ' + PORT);
-  console.log('[PROXY] Enabled routes: /api/xtream, /proxy/live, /proxy/movie, /proxy/series, /proxy/image, /api/xmltv, /transcode');
+  console.log('[PROXY] Enabled routes: /api/xtream, /proxy/live, /proxy/movie, /proxy/series, /proxy/image, /api/xmltv, /transcode, /hls/movie/:movieId/master.m3u8');
 });
