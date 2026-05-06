@@ -25,3 +25,13 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Generated media/cache
+hls-cache/
+*.ts
+*.m3u8
+
+# Local backups/logs
+server.js.bak*
+src/pages/*.bak*
+*.log
